@@ -1,0 +1,2 @@
+;; components/test.edn — Test component injection (may stub externals)
+#include "com/borba/be_boilerplate/components/base.edn"

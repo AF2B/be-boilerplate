@@ -1,0 +1,117 @@
+{:paths ["src" "resources"]
+
+ :deps
+ {org.clojure/clojure             {:mvn/version "1.12.0"}
+
+  ;; http
+  io.pedestal/pedestal.service    {:mvn/version "0.7.0"}
+  io.pedestal/pedestal.jetty      {:mvn/version "0.7.0"}
+
+  ;; config
+  integrant/integrant             {:mvn/version "0.8.1"}
+  aero/aero                       {:mvn/version "1.1.6"}
+
+  ;; specs
+  org.clojure/spec.alpha          {:mvn/version "0.5.238"}
+
+  ;; serialization
+  cheshire/cheshire               {:mvn/version "5.13.0"}
+  metosin/jsonista                {:mvn/version "0.3.8"}
+
+  ;; logging
+  org.slf4j/slf4j-simple          {:mvn/version "2.0.13"}
+
+  ;; ── Borba components (local — will become separate git repos) ───────────
+  ;; After pushing each folder as its own repo, replace :local/root with
+  ;; the corresponding :git/url + :git/tag + :git/sha.
+
+  borba/borba-core-component
+  {:local/root "borba-core-component"}
+
+  borba/borba-sql-client-component
+  {:local/root "borba-sql-client-component"}
+
+  borba/borba-redis-component
+  {:local/root "borba-redis-component"}
+
+  borba/borba-kafka-producer-component
+  {:local/root "borba-kafka-producer-component"}
+
+  borba/borba-kafka-consumer-component
+  {:local/root "borba-kafka-consumer-component"}
+
+  borba/borba-event-store-component
+  {:local/root "borba-event-store-component"}
+
+  borba/borba-handlers-component
+  {:local/root "borba-handlers-component"}
+
+  ;; ── Borba platform components (external git repos) ───────────────────────
+  borba/borba-runtime-component
+  {:git/url "https://github.com/AF2B/borba-runtime-component"
+   :git/tag "v0.1.3"
+   :git/sha "325879e6acc80be1e4c78e4ab56301f5b6565880"}
+
+  borba/borba-server-component
+  {:git/url "https://github.com/AF2B/borba-server-component"
+   :git/tag "v0.1.1"
+   :git/sha "9fc56eeb9b312be913b4af0261c9a08ba0067fe1"}
+
+  borba/borba-routes-component
+  {:git/url "https://github.com/AF2B/borba-routes-component"
+   :git/tag "v0.1.0"
+   :git/sha "dbc251d223bbedb831d3d17a28d94eca95d741e2"}}
+
+ :mvn/repos
+ {"confluent" {:url "https://packages.confluent.io/maven/"}}
+
+ :aliases
+ {:run
+  {:main-opts ["-m" "borba.runtime.main"]}
+
+  :test
+  {:extra-paths ["test"]
+   :extra-deps
+   {lambdaisland/kaocha             {:mvn/version "1.91.1392"}
+    lambdaisland/kaocha-cloverage   {:mvn/version "1.1.89"}
+    org.clojure/test.check          {:mvn/version "1.1.1"}
+
+    borba/borba-state-flow-component
+    {:git/url "https://github.com/AF2B/borba-state-flow-component"
+     :git/tag "v0.1.0"
+     :git/sha "90154076af658df2efb35f7258f8c9d0abcbb435"}}}
+
+  ;; ── Code formatting (cljfmt) ────────────────────────────────────────────
+  ;; make fmt-check  → verify formatting without changing files
+  ;; make fmt-fix    → reformat all source files in-place
+  :fmt-check
+  {:extra-deps {dev.weavejester/cljfmt {:mvn/version "0.12.0"}}
+   :main-opts  ["-m" "cljfmt.main" "check" "src" "test"]}
+
+  :fmt-fix
+  {:extra-deps {dev.weavejester/cljfmt {:mvn/version "0.12.0"}}
+   :main-opts  ["-m" "cljfmt.main" "fix" "src" "test"]}
+
+  ;; ── Linting ────────────────────────────────────────────────────────────────
+  :lint
+  {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2024.09.27"}}
+   :main-opts  ["-m" "clj-kondo.main" "--lint" "src" "test"]}
+
+  :build
+  {:deps
+   {io.github.clojure/tools.build
+    {:git/tag "v0.10.5"
+     :git/sha "2a21b7a"}
+
+    borba/borba-build-component
+    {:git/url "https://github.com/AF2B/borba-build-component"
+     :git/tag "v0.1.2"
+     :git/sha "32e5ad155f8b68b118a87279a0ee47226f3489f3"}}
+
+   :ns-default   borba.build
+   :exec-args    {:lib           com.borba/be-boilerplate
+                  :main-ns       borba.runtime.main
+                  :uber-file     "target/app.jar"
+                  :class-dir     "target/classes"
+                  :src-dirs      ["src"]
+                  :resource-dirs ["resources"]}}}}

@@ -1,0 +1,18 @@
+;; ─────────────────────────────────────────────────────────────────────────────
+;; components/base.edn — Base component injection map
+;;
+;; This map is injected as :components into the application context.
+;; Every layer (handlers, repository, events) can destructure the
+;; components it needs:
+;;
+;;   (let [{:keys [sql-client redis kafka-producer]} components]
+;;     ...)
+;;
+;; When these components become external libraries, this EDN stays here
+;; and only the init namespaces move out.
+;; ─────────────────────────────────────────────────────────────────────────────
+
+{:sql-client     #ig/ref :components/database
+ :redis          #ig/ref :components/redis
+ :kafka-producer #ig/ref :components/kafka-producer
+ :event-store    #ig/ref :components/event-store}

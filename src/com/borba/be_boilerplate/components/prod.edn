@@ -1,0 +1,2 @@
+;; components/prod.edn — Production component injection
+#include "com/borba/be_boilerplate/components/base.edn"

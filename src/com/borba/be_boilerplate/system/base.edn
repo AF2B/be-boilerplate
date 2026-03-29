@@ -1,0 +1,105 @@
+;; ─────────────────────────────────────────────────────────────────────────────
+;; system/base.edn — Base system configuration
+;;
+;; All Integrant keys are declared here. Profile-specific EDN files
+;; (stag, prod, test) deep-merge on top of this base.
+;;
+;; Components are injected via :components key — every layer of the application
+;; that needs an external resource (DB, Redis, Kafka, etc.) destructures it
+;; from the :components map.
+;; ─────────────────────────────────────────────────────────────────────────────
+
+{:service/core-ns         com.borba.be-boilerplate.core
+ :service/default-profile stag
+
+ ;; ── Component injection ────────────────────────────────────────────────────
+ ;; External components are resolved per-profile from the components/ folder.
+ ;; This key is available application-wide through destructuring:
+ ;;   (let [{:keys [sql-client redis kafka-producer event-store]} components] ...)
+ ;; ─────────────────────────────────────────────────────────────────────────────
+
+ :components #profile {:stag #include "com/borba/be_boilerplate/components/stag.edn"
+                       :prod #include "com/borba/be_boilerplate/components/prod.edn"
+                       :test #include "com/borba/be_boilerplate/components/test.edn"}
+
+ ;; ── Integrant system ───────────────────────────────────────────────────────
+
+ :ig/system
+ {;; ── Borba Core ────────────────────────────────────────────────────────────
+  ;; Startup banner + lifecycle logging.
+  ;; Override :service-name when scaffolding from this boilerplate.
+  :borba/core
+  {:service-name "be-boilerplate"
+   :version      #or [#env APP_VERSION "dev"]
+   :profile      #or [#env PROFILE "stag"]
+   :components   [:components/database
+                  :components/redis
+                  :components/kafka-producer
+                  :components/kafka-consumer
+                  :components/event-store]}
+
+  ;; ── HTTP Server ──────────────────────────────────────────────────────────
+  :server/http
+  {:port   #or [#env PORT 8080]
+   :host   "0.0.0.0"
+   :routes #ig/ref :http/routes}
+
+  ;; ── HTTP Routes ─────────────────────────────────────────────────────────
+  ;; Routes are declared in the profile EDN (stag.edn, prod.edn, etc.)
+  ;; Handlers are auto-discovered from defmethod registrations in routes.clj.
+  :http/routes
+  {:routes   []
+   :handlers #ig/ref :service/handlers}
+
+  ;; ── Handlers ────────────────────────────────────────────────────────────
+  ;; Auto-discovers all handlers registered via defmethod
+  ;; borba.handlers.registry/handler and builds their Pedestal chains.
+  :service/handlers
+  {:components #ig/ref :components/all}
+
+  ;; ── Database (PostgreSQL via next.jdbc + HikariCP) ─────────────────────
+  :components/database
+  {:jdbc-url #or [#env DATABASE_URL "jdbc:postgresql://localhost:5432/be_boilerplate_dev"]
+   :username #or [#env DB_USER "borba"]
+   :password #or [#env DB_PASS "borba_secret"]
+   :max-pool-size 10
+   :min-idle 2}
+
+  ;; ── Redis (Carmine) ────────────────────────────────────────────────────
+  :components/redis
+  {:host #or [#env REDIS_HOST "localhost"]
+   :port #or [#env REDIS_PORT 6379]}
+
+  ;; ── Kafka Producer ─────────────────────────────────────────────────────
+  :components/kafka-producer
+  {:bootstrap-servers #or [#env KAFKA_BROKERS "localhost:9092"]
+   :schema-registry   #or [#env SCHEMA_REGISTRY_URL "http://localhost:8081"]
+   :client-id         "be-boilerplate-producer"}
+
+  ;; ── Kafka Consumer ─────────────────────────────────────────────────────
+  :components/kafka-consumer
+  {:bootstrap-servers #or [#env KAFKA_BROKERS "localhost:9092"]
+   :schema-registry   #or [#env SCHEMA_REGISTRY_URL "http://localhost:8081"]
+   :group-id          "be-boilerplate-consumer-group"
+   :topics            []
+   :handlers          #ig/ref :kafka/consumer-handlers}
+
+  ;; ── Kafka Consumer Handlers ────────────────────────────────────────────
+  ;; Base empty map. Overridden by defmethod ig/init-key :kafka/consumer-handlers
+  ;; in events/consumer.clj.
+  :kafka/consumer-handlers {}
+
+  ;; ── Unified component registry ─────────────────────────────────────────
+  ;; Assembled into a single map for injection into every handler.
+  :components/all
+  {:sql-client     #ig/ref :components/database
+   :redis          #ig/ref :components/redis
+   :kafka-producer #ig/ref :components/kafka-producer
+   :event-store    #ig/ref :components/event-store}
+
+  ;; ── Event Store (PostgreSQL-backed append-only log) ────────────────────
+  :components/event-store
+  {:database #ig/ref :components/database}
+
+  ;; ── Projections ────────────────────────────────────────────────────────
+  :projection/folding-funcs {}}}

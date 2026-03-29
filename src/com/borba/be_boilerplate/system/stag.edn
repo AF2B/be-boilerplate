@@ -1,0 +1,21 @@
+;; ─────────────────────────────────────────────────────────────────────────────
+;; system/stag.edn — Staging profile
+;;
+;; Deep-merges on top of base.edn.
+;; Declares all HTTP routes and Kafka consumer topics for staging.
+;; ─────────────────────────────────────────────────────────────────────────────
+
+#deep-merge [#include "com/borba/be_boilerplate/system/base.edn"
+
+             {:ig/system
+              {;; ── HTTP Routes (staging) ───────────────────────────────────
+               :http/routes
+               {:routes [["/health"       :get  :health/check]
+                         ["/v1/users"     :post :user/create]
+                         ["/v1/users/:id" :get  :user/get-by-id]
+                         ["/v1/orders"    :post :order/create]
+                         ["/v1/orders/:id" :get :order/get-by-id]]}
+
+               ;; ── Kafka consumer topics (staging) ────────────────────────
+               :components/kafka-consumer
+               {:topics ["order-events"]}}}]

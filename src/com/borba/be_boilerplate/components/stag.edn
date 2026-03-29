@@ -1,0 +1,2 @@
+;; components/stag.edn — Staging component injection
+#include "com/borba/be_boilerplate/components/base.edn"

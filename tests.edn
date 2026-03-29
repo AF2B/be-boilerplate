@@ -1,0 +1,4 @@
+#kaocha/v1
+{:kaocha.plugin.cloverage/opts
+ {:output "target/coverage"
+  :html?  true}}

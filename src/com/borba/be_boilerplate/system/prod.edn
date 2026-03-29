@@ -1,0 +1,18 @@
+;; system/prod.edn — Production profile
+
+#deep-merge [#include "com/borba/be_boilerplate/system/base.edn"
+
+             {:ig/system
+              {:http/routes
+               {:routes [["/health"       :get  :health/check]
+                         ["/v1/users"     :post :user/create]
+                         ["/v1/users/:id" :get  :user/get-by-id]
+                         ["/v1/orders"    :post :order/create]
+                         ["/v1/orders/:id" :get :order/get-by-id]]}
+
+               :components/kafka-consumer
+               {:topics ["order-events"]}
+
+               :components/database
+               {:max-pool-size 20
+                :min-idle 5}}}]
