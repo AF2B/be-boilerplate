@@ -1,0 +1,5 @@
+This folder is intentionally empty.
+
+Place anti-corruption layer adapters here — code that translates between
+external systems (third-party APIs, legacy services) and the domain model.
+Examples: payment-gateway adapter, notification-service adapter.
