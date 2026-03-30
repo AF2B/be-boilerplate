@@ -24,8 +24,8 @@
   ;; ── Borba components ─────────────────────────────────────────────────────
   borba/borba-core-component
   {:git/url "https://gitlab.com/andre.borbaaf2b/borba-core-component.git"
-   :git/tag "v1.0.0"
-   :git/sha "c5e3c61f"}
+   :git/tag "v1.1.0"
+   :git/sha "9023632f"}
 
   borba/borba-sql-client-component
   {:git/url "https://gitlab.com/andre.borbaaf2b/borba-sql-client-component.git"
@@ -89,7 +89,7 @@
    {lambdaisland/kaocha             {:mvn/version "1.91.1392"}
     lambdaisland/kaocha-cloverage   {:mvn/version "1.1.89"}
     org.clojure/test.check          {:mvn/version "1.1.1"}
-    nubank/state-flow               {:mvn/version "0.22.5"}}}
+    nubank/state-flow               {:mvn/version "5.20.1"}}}
 
   ;; ── Code formatting (cljfmt) ───────────────────────────────────────────────
   :fmt-check
