@@ -4,14 +4,21 @@
 
              {:ig/system
               {:http/routes
-               {:routes [["/health"       :get  :health/check]
-                         ["/v1/users"     :post :user/create]
-                         ["/v1/users/:id" :get  :user/get-by-id]
-                         ["/v1/orders"    :post :order/create]
-                         ["/v1/orders/:id" :get :order/get-by-id]]}
+               {:routes [["/health"        :get  :health/check]
+                         ["/v1/users"      :post :user/create
+                          {:interceptors [:log-request :require-content-type]}]
+                         ["/v1/users/:id"  :get  :user/get-by-id
+                          {:interceptors [:log-request]}]
+                         ["/v1/orders"     :post :order/create
+                          {:interceptors [:log-request :require-content-type]}]
+                         ["/v1/orders/:id" :get  :order/get-by-id
+                          {:interceptors [:log-request]}]]}
 
                :components/kafka-consumer
                {:topics ["order-events"]}
+
+               :kafka/consumer-handlers
+               {"order-events" com.borba.be-boilerplate.events.consumer/handle-order-event}
 
                :components/database
                {:max-pool-size 20

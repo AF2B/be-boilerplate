@@ -2,7 +2,7 @@
   "Unit tests for Order business logic."
   (:require [clojure.test :refer [deftest testing is]]
             [com.borba.be-boilerplate.handlers.business.order :as order]
-            [com.borba.be-boilerplate.util.railway :as rop]))
+            [borba.railway :as rop]))
 
 (deftest validate-order-input-test
   (testing "valid input returns Right"

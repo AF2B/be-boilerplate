@@ -9,7 +9,7 @@
             [com.borba.be-boilerplate.repository.order :as repo]
             [borba.kafka-producer :as kafka]
             [borba.event-store :as es]
-            [com.borba.be-boilerplate.util.railway :as rop])
+            [borba.railway :as rop])
   (:import (java.util UUID)))
 
 ;; ── Railway steps ───────────────────────────────────────────────────────────

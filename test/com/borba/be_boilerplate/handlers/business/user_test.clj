@@ -2,7 +2,7 @@
   "Unit tests for User business logic."
   (:require [clojure.test :refer [deftest testing is]]
             [com.borba.be-boilerplate.handlers.business.user :as user]
-            [com.borba.be-boilerplate.util.railway :as rop]))
+            [borba.railway :as rop]))
 
 ;; ── Validation tests ────────────────────────────────────────────────────────
 

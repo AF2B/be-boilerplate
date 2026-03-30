@@ -1,10 +1,11 @@
 (ns com.borba.be-boilerplate.util.predicates
-  "Common predicate functions used across specs and validations.")
+  "Common predicate functions used across specs and validations."
+  (:require [clojure.string :as str]))
 
 (defn non-blank?
   "Returns true if s is a non-blank string."
   [s]
-  (and (string? s) (seq (clojure.string/trim s))))
+  (and (string? s) (seq (str/trim s))))
 
 (defn positive-int?
   "Returns true if n is a positive integer."

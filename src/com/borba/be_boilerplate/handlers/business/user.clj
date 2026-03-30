@@ -6,7 +6,7 @@
   (:require [clojure.spec.alpha :as s]
             [com.borba.be-boilerplate.specs.user :as specs]
             [com.borba.be-boilerplate.repository.user :as repo]
-            [com.borba.be-boilerplate.util.railway :as rop])
+            [borba.railway :as rop])
   (:import (java.util UUID)
            (java.time Instant)))
 

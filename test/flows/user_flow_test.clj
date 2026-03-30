@@ -3,7 +3,7 @@
   (:require [borba.flow :as sf]
             [borba.routes.component]
             [clojure.test :refer [is]]
-            [com.borba.be-boilerplate.handlers.http.routes]
+            [com.borba.be-boilerplate.handlers.http.handlers]
             [state-flow.api :as flow]))
 
 (sf/defflow run-user-integration-tests
