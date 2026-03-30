@@ -9,3 +9,5 @@ target/
 *.iml
 .env
 node_modules/
+.calva
+.clj-kondo
