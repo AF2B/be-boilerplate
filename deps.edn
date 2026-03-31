@@ -58,16 +58,24 @@
    :git/sha "433ab250"}
 
   borba/borba-interceptors-component
-  {:local/root "../borba-interceptors-component"}
+  {:git/url "https://gitlab.com/andre.borbaaf2b/borba-interceptors-component.git"
+   :git/tag "v1.0.0"
+   :git/sha "8f4ed389"}
 
   borba/borba-routes-component
-  {:local/root "../borba-routes-component"}
+  {:git/url "https://gitlab.com/andre.borbaaf2b/borba-routes-component.git"
+   :git/tag "v1.0.0"
+   :git/sha "c09d7236"}
 
   borba/borba-server-component
-  {:local/root "../borba-server-component"}
+  {:git/url "https://gitlab.com/andre.borbaaf2b/borba-server-component.git"
+   :git/tag "v1.0.0"
+   :git/sha "813d946d"}
 
   borba/borba-railway-component
-  {:local/root "../borba-railway-component"}}
+  {:git/url "https://gitlab.com/andre.borbaaf2b/borba-railway-component.git"
+   :git/tag "v1.0.0"
+   :git/sha "1db34186"}}
 
  :mvn/repos
  {"confluent" {:url "https://packages.confluent.io/maven/"}}
