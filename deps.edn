@@ -1,0 +1,128 @@
+{:paths ["src" "resources"]
+
+ :deps
+ {org.clojure/clojure             {:mvn/version "1.12.0"}
+
+  ;; http
+  io.pedestal/pedestal.service    {:mvn/version "0.7.0"}
+  io.pedestal/pedestal.jetty      {:mvn/version "0.7.0"}
+
+  ;; config
+  integrant/integrant             {:mvn/version "0.8.1"}
+  aero/aero                       {:mvn/version "1.1.6"}
+
+  ;; specs
+  org.clojure/spec.alpha          {:mvn/version "0.5.238"}
+
+  ;; serialization
+  cheshire/cheshire               {:mvn/version "5.13.0"}
+  metosin/jsonista                {:mvn/version "0.3.8"}
+
+  ;; logging
+  org.slf4j/slf4j-simple          {:mvn/version "2.0.13"}
+
+  ;; ── Borba components ─────────────────────────────────────────────────────
+  borba/borba-core-component
+  {:git/url "https://gitlab.com/andre.borbaaf2b/borba-core-component.git"
+   :git/tag "v1.1.0"
+   :git/sha "9023632f"}
+
+  borba/borba-sql-client-component
+  {:git/url "https://gitlab.com/andre.borbaaf2b/borba-sql-client-component.git"
+   :git/tag "v1.0.0"
+   :git/sha "07dc605b"}
+
+  borba/borba-redis-component
+  {:git/url "https://gitlab.com/andre.borbaaf2b/borba-redis-component.git"
+   :git/tag "v1.0.0"
+   :git/sha "4d804076"}
+
+  borba/borba-kafka-producer-component
+  {:git/url "https://gitlab.com/andre.borbaaf2b/borba-kafka-producer-component.git"
+   :git/tag "v1.0.0"
+   :git/sha "3314ea14"}
+
+  borba/borba-kafka-consumer-component
+  {:git/url "https://gitlab.com/andre.borbaaf2b/borba-kafka-consumer-component.git"
+   :git/tag "v1.0.0"
+   :git/sha "65cbe403"}
+
+  borba/borba-event-store-component
+  {:git/url "https://gitlab.com/andre.borbaaf2b/borba-event-store-component.git"
+   :git/tag "v1.0.0"
+   :git/sha "a60d1245"}
+
+  borba/borba-handlers-component
+  {:git/url "https://gitlab.com/andre.borbaaf2b/borba-handlers-component.git"
+   :git/tag "v1.0.0"
+   :git/sha "433ab250"}
+
+  borba/borba-interceptors-component
+  {:git/url "https://gitlab.com/andre.borbaaf2b/borba-interceptors-component.git"
+   :git/tag "v1.0.0"
+   :git/sha "8f4ed389"}
+
+  borba/borba-routes-component
+  {:git/url "https://gitlab.com/andre.borbaaf2b/borba-routes-component.git"
+   :git/tag "v1.0.0"
+   :git/sha "c09d7236"}
+
+  borba/borba-server-component
+  {:git/url "https://gitlab.com/andre.borbaaf2b/borba-server-component.git"
+   :git/tag "v1.0.0"
+   :git/sha "813d946d"}
+
+  borba/borba-railway-component
+  {:git/url "https://gitlab.com/andre.borbaaf2b/borba-railway-component.git"
+   :git/tag "v1.0.0"
+   :git/sha "1db34186"}}
+
+ :mvn/repos
+ {"confluent" {:url "https://packages.confluent.io/maven/"}}
+
+ :aliases
+ {:dev
+  {:extra-paths ["test"]
+   :jvm-opts    ["-Dprofile=stag"
+                 "-Dfile.encoding=UTF-8"
+                 "-Dstdout.encoding=UTF-8"
+                 "-Dstderr.encoding=UTF-8"]}
+
+  :run
+  {:main-opts ["-m" "borba.core.main"]}
+
+  :test
+  {:extra-paths ["test"]
+   :extra-deps
+   {lambdaisland/kaocha             {:mvn/version "1.91.1392"}
+    lambdaisland/kaocha-cloverage   {:mvn/version "1.1.89"}
+    org.clojure/test.check          {:mvn/version "1.1.1"}
+    nubank/state-flow               {:mvn/version "5.20.1"}}}
+
+  ;; ── Code formatting (cljfmt) ───────────────────────────────────────────────
+  :fmt-check
+  {:extra-deps {dev.weavejester/cljfmt {:mvn/version "0.12.0"}}
+   :main-opts  ["-m" "cljfmt.main" "check" "src" "test"]}
+
+  :fmt-fix
+  {:extra-deps {dev.weavejester/cljfmt {:mvn/version "0.12.0"}}
+   :main-opts  ["-m" "cljfmt.main" "fix" "src" "test"]}
+
+  ;; ── Linting ───────────────────────────────────────────────────────────────
+  :lint
+  {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2024.09.27"}}
+   :main-opts  ["-m" "clj-kondo.main" "--lint" "src" "test"]}
+
+  :build
+  {:deps
+   {io.github.clojure/tools.build
+    {:git/tag "v0.10.5"
+     :git/sha "2a21b7a"}}
+
+   :ns-default   build
+   :exec-args    {:lib           com.borba/be-boilerplate
+                  :main-ns       borba.core.main
+                  :uber-file     "target/app.jar"
+                  :class-dir     "target/classes"
+                  :src-dirs      ["src"]
+                  :resource-dirs ["resources"]}}}}

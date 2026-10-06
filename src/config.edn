@@ -1,0 +1,3 @@
+#profile {:stag #include "com/borba/be_boilerplate/system/stag.edn"
+          :prod #include "com/borba/be_boilerplate/system/prod.edn"
+          :test #include "com/borba/be_boilerplate/system/test.edn"}

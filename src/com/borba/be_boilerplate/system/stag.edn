@@ -1,0 +1,49 @@
+;; ─────────────────────────────────────────────────────────────────────────────
+;; system/stag.edn — Staging profile
+;;
+;; Deep-merges on top of base.edn.
+;;
+;; ── Adding a Kafka handler ────────────────────────────────────────────────────
+;; 1. Define (defn handle-my-event [...] ...) in events/consumer.clj
+;; 2. Add to :kafka/consumer-handlers with a fully-qualified symbol:
+;;      {"my-topic" com.borba.be-boilerplate.events.consumer/handle-my-event}
+;; 3. Add the topic to :components/kafka-consumer :topics
+;;
+;; ── Adding a route with ordered interceptors ──────────────────────────────────
+;; 1. Define + register the interceptor in handlers/http/interceptors.clj
+;;      (defmethod interceptors/interceptor :my-check [_ _] {:enter my-check-enter})
+;; 2. Reference it in the route tuple using its plain keyword:
+;;      ["/v1/path" :post :my/handler {:interceptors [:my-check]}]
+;; Interceptors run in the order listed — left to right before the handler.
+;; ─────────────────────────────────────────────────────────────────────────────
+
+#deep-merge [#include "com/borba/be_boilerplate/system/base.edn"
+
+             {:ig/system
+              {;; ── HTTP Routes (staging) ──────────────────────────────────
+               :http/routes
+               {:routes [["/health"        :get  :health/check]
+
+                         ;; POST routes use :require-content-type to guard against bad clients.
+                         ;; :log-request is applied on all routes here as demonstration.
+                         ["/v1/users"      :post :user/create
+                          {:interceptors [:log-request :require-content-type]}]
+
+                         ["/v1/users/:id"  :get  :user/get-by-id
+                          {:interceptors [:log-request]}]
+
+                         ["/v1/orders"     :post :order/create
+                          {:interceptors [:log-request :require-content-type]}]
+
+                         ["/v1/orders/:id" :get  :order/get-by-id
+                          {:interceptors [:log-request]}]]}
+
+               ;; ── Kafka consumer topics (staging) ────────────────────────
+               :components/kafka-consumer
+               {:topics ["order-events"]}
+
+               ;; ── Kafka consumer handlers ───────────────────────────────
+               ;; Values are fully-qualified symbols pointing to handler fns.
+               ;; The kafka-consumer component resolves them via requiring-resolve.
+               :kafka/consumer-handlers
+               {"order-events" com.borba.be-boilerplate.events.consumer/handle-order-event}}}]

@@ -1,0 +1,4 @@
+This folder is intentionally empty.
+
+Component lifecycle code (init, halt, config) lives in borba-*-component repos.
+Place service-specific component extensions here if needed.

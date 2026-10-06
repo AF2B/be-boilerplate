@@ -1,0 +1,20 @@
+;; system/test.edn — Test profile
+
+#deep-merge [#include "com/borba/be_boilerplate/system/base.edn"
+
+             {:ig/system
+              {:http/routes
+               {:routes [["/health"        :get  :health/check]
+                         ["/v1/users"      :post :user/create]
+                         ["/v1/users/:id"  :get  :user/get-by-id]
+                         ["/v1/orders"     :post :order/create]
+                         ["/v1/orders/:id" :get  :order/get-by-id]]}
+
+               :components/database
+               {:jdbc-url  #or [#env DATABASE_URL "jdbc:postgresql://localhost:5432/be_boilerplate_test"]
+                :username  #or [#env DB_USER "borba"]
+                :password  #or [#env DB_PASS "borba_secret"]}
+
+               ;; No Kafka consumer in test — avoids needing a running broker
+               :components/kafka-consumer
+               {:topics []}}}]
