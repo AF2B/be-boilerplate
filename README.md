@@ -1,5 +1,7 @@
 # be-boilerplate
 
+![DEPRECATED, maintenance resumes 2027-04-06](https://img.shields.io/badge/DEPRECATED-maintenance%20resumes%202027--04--06-red)
+
 > Clojure microservice boilerplate — Data-Driven, Event-Sourced, Railway-Oriented.
 
 ## Stack
