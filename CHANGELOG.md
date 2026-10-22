@@ -8,6 +8,14 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The event store is the outbox: creating an order stores the order and its
+  event and never calls Kafka, so a request is neither slowed (it waited up to
+  5 s for the brokers) nor left with an event that was never published. The
+  event relay publishes the events in order, at-least-once, and stops and
+  tries again while Kafka is away.
+- The event store is used in a transaction through its documented contract
+  (event store 2.0.1).
+
 - **Breaking:** the Borba components come from GitHub (`io.github.af2b/*`) at
   their 2.x releases (core 2.1.0, interceptors 1.1.1), in place of the 1.x
   releases on GitLab.
@@ -31,6 +39,11 @@ adheres to [Semantic Versioning](https://semver.org/).
   this changelog.
 
 ### Added
+
+- `system/event_relay.clj`, `:service/event-relay`, and the migration
+  `002_event_relay_positions.sql`, where each relay keeps its position and its
+  lock.
+- A log line for each order created.
 
 - The Schema Registry: the order-events topic has a JSON Schema
   (`events/schemas/order_events.edn`) that every value is checked against

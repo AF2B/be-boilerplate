@@ -3,14 +3,14 @@
 
    Demonstrates Event Sourcing + Railway Oriented Programming. Creating an
    order stores the order and its order-created event in one transaction, so
-   neither exists without the other, and then publishes the event to Kafka."
+   neither exists without the other. The request never calls Kafka: the event
+   store is the outbox, and system/event_relay.clj publishes its events."
   (:require
    [borba.event-store :as es]
    [borba.railway :as rop]
    [borba.sql-client :as sql]
    [clojure.spec.alpha :as s]
    [clojure.tools.logging :as log]
-   [com.borba.be-boilerplate.events.producer :as producer]
    [com.borba.be-boilerplate.repository.order :as repo]
    [com.borba.be-boilerplate.specs.order :as specs]))
 
@@ -68,8 +68,8 @@
   (sql/transact!
    sql-client
    (fn [tx]
-     ;; The store is a map of its :datasource; the connection of the
-     ;; transaction takes its place, as it does for the repository.
+     ;; A store on the connection of the transaction appends in it, as the
+     ;; event store documents (README, "In a transaction").
      (let [stored   (repo/insert! (assoc components :sql-client tx) order)
            appended (es/append! (assoc event-store :datasource tx)
                                 (created-event-of stored))]
@@ -81,40 +81,24 @@
   "Persists the order and its event."
   [components]
   (fn [order]
-    (rop/try-right persist-with-event! components order)))
-
-(defn- publish-created!
-  "Publishes the event without failing the request: the order and its event
-   are already stored, and a projection of the event store can publish again."
-  [kafka-producer order]
-  (try
-    (producer/order-created! kafka-producer order)
-    (catch Exception cause
-      (log/warn cause "order-created was not published for" (:id order)))))
-
-(defn- publish-event
-  "Publishes the order-created event to Kafka."
-  [{:keys [kafka-producer]}]
-  (fn [order]
-    (when kafka-producer
-      (publish-created! kafka-producer order))
-    (rop/right order)))
+    (let [result (rop/try-right persist-with-event! components order)]
+      (when (rop/right? result)
+        (log/infof "order %s created for user %s" (:id order) (:user-id order)))
+      result)))
 
 ;; ── Public API ──────────────────────────────────────────────────────────────
 
 (defn create!
   "Creates an order: validate, calculate the total, enrich, persist with its
-   event, publish. Returns Right{order} or Left{:error ...}.
-   - components: the service components, with :sql-client, :event-store and,
-     optionally, :kafka-producer
+   event. Returns Right{order} or Left{:error ...}.
+   - components: the service components, with :sql-client and :event-store
    - input: the request body, {:user-id <uuid string> :items [...]}"
   [components input]
   (rop/|> input
           validate-create-input
           calculate-total
           enrich-order
-          (persist-order components)
-          (publish-event components)))
+          (persist-order components)))
 
 (defn get-by-id
   "Returns Right{order}, or Left{:error :not-found} when there is no order with

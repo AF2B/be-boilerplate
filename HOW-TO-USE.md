@@ -309,30 +309,44 @@ jq -n --arg schema "$(clojure -M -e '(require (quote [clojure.edn :as edn]) (quo
        --data @- "$SCHEMA_REGISTRY_URL/subjects/payment-events-value/versions"
 ```
 
-### Step 4 — Publish
+### Step 4 — Publish through the event store
 
-Wrap each event in a domain-named function in `events/producer.clj`:
+A request never calls Kafka. It stores the state and the event in one transaction, and the event relay
+(`system/event_relay.clj`) publishes the events of the event store, in the order they were stored in, as
+`{:event-type ... :data <payload>}` keyed by the id of the aggregate. Map the aggregate type to its topic
+in `base.edn`:
 
-```clojure
-(defn payment-created!
-  "Publishes a payment-created event.
-   - kafka-producer: the kafka-producer component
-   - payment: the payment as it was stored"
-  [kafka-producer payment]
-  (kafka/send! kafka-producer
-               payment-events-topic
-               (:id payment)
-               {:event-type "payment-created"
-                :data       payment}))
+```edn
+:service/event-relay
+{...
+ :topics {"order"   "order-events"
+          "payment" "payment-events"}}
 ```
 
-- The value is sent as JSON; the key keeps the events of an aggregate in order.
-- `kafka/send!` is asynchronous and returns a future; `kafka/send-sync!` waits and returns
-  `{:topic :partition :offset :timestamp}`. A failure that nobody waits for is logged.
-- Delivery is `acks=all` with idempotence: a retry is not a duplicate.
+and append the event with the state, as `handlers/business/order.clj` does:
 
-See `handlers/business/order.clj`: the order and its event are stored in one transaction, and the
-event is published after it, without failing the request when Kafka is away.
+```clojure
+(sql/transact!
+ (:sql-client components)
+ (fn [tx]
+   (let [payment (repo/insert! (assoc components :sql-client tx) payment)]
+     (es/append! (assoc (:event-store components) :datasource tx)
+                 {:aggregate-id   (:id payment)
+                  :aggregate-type "payment"
+                  :event-type     "payment-created"
+                  :payload        payment
+                  :version        1}))))
+```
+
+- When Kafka is away the request still succeeds; the relay stops at the event that failed, logs it, and
+  publishes it when Kafka is back. Nothing is lost and nothing is published out of order.
+- Delivery is at-least-once, so consumers must be safe to receive an event twice.
+- An event is published once it is `:settle-ms` (1 s) old by the clock of the database, so a transaction
+  that commits late is not overtaken by the ones after it.
+- Of the instances of a service only one relays at a time: its row in `event_relay_positions` is the lock.
+
+`kafka-producer` is still in the components for what is not an event of an aggregate (a command to
+another service, say), with `kafka/send!` or `kafka/send-sync!`.
 
 ---
 
