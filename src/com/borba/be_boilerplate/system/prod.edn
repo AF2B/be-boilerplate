@@ -5,6 +5,7 @@
              {:ig/system
               {:http/routes
                {:routes [["/health"        :get  :health/check]
+                         ["/readyz"        :get  :health/ready]
                          ["/v1/users"      :post :user/create
                           {:interceptors [:log-request :require-content-type]}]
                          ["/v1/users/:id"  :get  :user/get-by-id

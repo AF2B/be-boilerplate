@@ -1,8 +1,14 @@
 (ns com.borba.be-boilerplate.handlers.business.user-test
   "Unit tests for User business logic."
-  (:require [clojure.test :refer [deftest testing is]]
-            [com.borba.be-boilerplate.handlers.business.user :as user]
-            [borba.railway :as rop]))
+  (:require
+   [borba.railway :as rop]
+   [clojure.test :refer [deftest is testing]]
+   [clojure.test.check.clojure-test :as tc]
+   [clojure.test.check.properties :as prop]
+   [com.borba.be-boilerplate.handlers.business.user :as user]
+   [generators.user :as gen-user]))
+
+(def ^:private property-trials 50)
 
 ;; ── Validation tests ────────────────────────────────────────────────────────
 
@@ -19,26 +25,40 @@
       (is (= :validation-failed (:error (rop/unwrap result))))))
 
   (testing "invalid email returns Left"
-    (let [result (#'user/validate-create-input {:name "Test" :email "not-an-email"})]
+    (let [result (#'user/validate-create-input {:name  "Test"
+                                                :email "not-an-email"})]
       (is (rop/left? result))
       (is (= :validation-failed (:error (rop/unwrap result))))))
 
   (testing "blank name returns Left"
-    (let [result (#'user/validate-create-input {:name "   " :email "test@test.com"})]
+    (let [result (#'user/validate-create-input {:name  "   "
+                                                :email "test@test.com"})]
       (is (rop/left? result)))))
+
+(tc/defspec generated-input-is-valid property-trials
+  (prop/for-all [input gen-user/gen-user-input]
+    (rop/right? (#'user/validate-create-input input))))
+
+;; ── Enrichment and lookup ───────────────────────────────────────────────────
+
+(deftest enrich-user-test
+  (testing "adds a UUID id and the creation time"
+    (let [enriched (rop/unwrap (#'user/enrich-user {:name "Ana"}))]
+      (is (uuid? (:id enriched)))
+      (is (inst? (:created-at enriched))))))
+
+(deftest get-by-id-test
+  (testing "an id that is not a UUID is not found, without a query"
+    (let [result (user/get-by-id {} "42")]
+      (is (= {:error :not-found :id "42"} (rop/unwrap result))))))
 
 ;; ── Railway utility tests ───────────────────────────────────────────────────
 
 (deftest railway-operations-test
-  (testing "Right wrapping and unwrapping"
-    (let [r (rop/right {:data 42})]
-      (is (rop/right? r))
-      (is (= {:data 42} (rop/unwrap r)))))
-
-  (testing "Left wrapping and unwrapping"
-    (let [l (rop/left {:error :something})]
-      (is (rop/left? l))
-      (is (= {:error :something} (rop/unwrap l)))))
+  (testing "failure builds a Left with the error code and its context"
+    (is (= {:error :user/email-already-exists :email "a@b.com"}
+           (rop/unwrap (rop/failure :user/email-already-exists
+                                    {:email "a@b.com"})))))
 
   (testing "bind short-circuits on Left"
     (let [result (rop/>>= (rop/left {:error :first})
@@ -53,12 +73,6 @@
       (is (rop/right? result))
       (is (= 20 (rop/unwrap result)))))
 
-  (testing "either dispatches correctly"
-    (is (= :success
-           (rop/either (rop/right 42)
-                       (fn [_] :failure)
-                       (fn [_] :success))))
-    (is (= :failure
-           (rop/either (rop/left {:error :oops})
-                       (fn [_] :failure)
-                       (fn [_] :success))))))
+  (testing "a step that returns a plain value is a programming error"
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (rop/>>= (rop/right 1) inc)))))

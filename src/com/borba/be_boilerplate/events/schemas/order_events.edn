@@ -1,0 +1,35 @@
+;; The JSON Schema of the values of the order-events topic: the contract that
+;; the Schema Registry holds under the subject order-events-value. Every value
+;; is checked against it before it is sent, and when it is read.
+;;
+;; A change goes through the registry: register? true registers it locally,
+;; where the registry refuses one that is not compatible with the versions
+;; before it; elsewhere it is registered before the deploy that uses it.
+{:$schema              "http://json-schema.org/draft-07/schema#"
+ :title                "order-events"
+ :type                 "object"
+ :required             ["event-type" "data"]
+ :additionalProperties false
+ :properties
+ {:event-type {:type "string"
+               :enum ["order-created"]}
+  :data
+  {:type                 "object"
+   :required             ["id" "user-id" "items" "total" "status"]
+   :additionalProperties false
+   :properties
+   {:id         {:type "string" :format "uuid"}
+    :user-id    {:type "string" :format "uuid"}
+    :total      {:type "number" :minimum 0}
+    :status     {:type "string"}
+    :created-at {:type "string" :format "date-time"}
+    :items
+    {:type     "array"
+     :minItems 1
+     :items    {:type                 "object"
+                :required             ["product" "quantity" "price"]
+                :additionalProperties false
+                :properties
+                {:product  {:type "string" :minLength 1}
+                 :quantity {:type "integer" :minimum 1}
+                 :price    {:type "number" :exclusiveMinimum 0}}}}}}}}

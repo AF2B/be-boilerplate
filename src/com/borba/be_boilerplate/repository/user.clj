@@ -1,54 +1,45 @@
 (ns com.borba.be-boilerplate.repository.user
-  "Repository layer for User aggregate.
+  "Repository layer for the User aggregate.
 
-   Uses borba.sql-client API — no direct next.jdbc imports needed.
-   All SQL result sets are auto-converted to unqualified kebab-case maps.
+   Uses the borba.sql-client API, no direct next.jdbc. Rows come back as maps
+   with unqualified kebab-case keys (`created_at` is `:created-at`), and every
+   timestamp column is read as a java.time.Instant.
 
    Pattern:
      (defn find-by-id [components id]
-       (let [{:keys [sql-client]} components]
-         (sql/execute-one! sql-client [\"SELECT * FROM users WHERE id = ?\" id])))"
-  (:require [borba.sql-client :as sql]))
+       (sql/find-one-by! (:sql-client components) :users {:id id}))"
+  (:require
+   [borba.sql-client :as sql]))
 
-(def ^:private create-table-sql
-  "CREATE TABLE IF NOT EXISTS users (
-     id         UUID PRIMARY KEY,
-     name       VARCHAR(255) NOT NULL,
-     email      VARCHAR(255) NOT NULL UNIQUE,
-     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-   );")
+(def ^:private table :users)
 
-(defn ensure-table!
-  "Creates the users table if it doesn't exist."
-  [components]
-  (let [{:keys [sql-client]} components]
-    (sql/execute! sql-client [create-table-sql])))
+(def ^:private columns [:id :name :email :created-at])
 
 (defn insert!
-  "Inserts a new user. Returns the inserted row."
-  [components {:keys [id name email]}]
-  (let [{:keys [sql-client]} components]
-    (sql/execute-one! sql-client
-                      ["INSERT INTO users (id, name, email) VALUES (?, ?, ?) RETURNING *"
-                       id name email])))
+  "Inserts a user and returns the stored row. A repeated email throws the
+   SQLException of the unique constraint, which sql/error-data classifies.
+   - components: the service components, with :sql-client
+   - user: a map of :id (UUID), :name, :email and :created-at (Instant)"
+  [components user]
+  (sql/insert! (:sql-client components) table (select-keys user columns)))
 
 (defn find-by-id
-  "Finds a user by UUID. Returns nil if not found."
+  "Returns the user with an id, or nil.
+   - components: the service components, with :sql-client
+   - id: the UUID of the user"
   [components id]
-  (let [{:keys [sql-client]} components]
-    (sql/execute-one! sql-client
-                      ["SELECT * FROM users WHERE id = ?" id])))
+  (sql/find-one-by! (:sql-client components) table {:id id}))
 
 (defn find-by-email
-  "Finds a user by email. Returns nil if not found."
+  "Returns the user with an email, or nil.
+   - components: the service components, with :sql-client
+   - email: the email of the user"
   [components email]
-  (let [{:keys [sql-client]} components]
-    (sql/execute-one! sql-client
-                      ["SELECT * FROM users WHERE email = ?" email])))
+  (sql/find-one-by! (:sql-client components) table {:email email}))
 
 (defn find-all
-  "Returns all users, ordered by created_at desc."
+  "Returns every user, the most recent first.
+   - components: the service components, with :sql-client"
   [components]
-  (let [{:keys [sql-client]} components]
-    (sql/execute! sql-client
-                  ["SELECT * FROM users ORDER BY created_at DESC"])))
+  (sql/execute! (:sql-client components)
+                ["SELECT * FROM users ORDER BY created_at DESC"]))

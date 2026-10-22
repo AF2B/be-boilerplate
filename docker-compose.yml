@@ -1,91 +1,82 @@
-version: "3.9"
+# Local infrastructure. Credentials and host ports come from .env (copy
+# .env.example); nothing secret is written here.
 
 services:
-  # ─────────────────────────────────────────────────────────────────────────
-  # PostgreSQL 16
-  # ─────────────────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: be-boilerplate-postgres
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     environment:
-      POSTGRES_USER: borba
-      POSTGRES_PASSWORD: borba_secret
-      POSTGRES_DB: be_boilerplate_dev
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      POSTGRES_USER: ${DATABASE_USER:?set DATABASE_USER in .env}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?set DATABASE_PASSWORD in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./db/migrations:/docker-entrypoint-initdb.d
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U borba"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
-  # ─────────────────────────────────────────────────────────────────────────
-  # Redis
-  # ─────────────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: be-boilerplate-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
-  # ─────────────────────────────────────────────────────────────────────────
-  # Zookeeper (Kafka dependency)
-  # ─────────────────────────────────────────────────────────────────────────
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.7.1
-    container_name: be-boilerplate-zookeeper
-    ports:
-      - "2181:2181"
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-
-  # ─────────────────────────────────────────────────────────────────────────
-  # Kafka
-  # ─────────────────────────────────────────────────────────────────────────
+  # Single-node Kafka in KRaft mode: no ZooKeeper. It listens for the service
+  # on localhost and for the schema registry on the network of the compose.
   kafka:
-    image: confluentinc/cp-kafka:7.7.1
+    image: apache/kafka:4.0.0
     container_name: be-boilerplate-kafka
-    depends_on:
-      - zookeeper
     ports:
-      - "9092:9092"
-      - "29092:29092"
+      - "127.0.0.1:${KAFKA_PORT:-9092}:9092"
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,INTERNAL://:19092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:${KAFKA_PORT:-9092},INTERNAL://kafka:19092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:19092 > /dev/null"]
       interval: 10s
       timeout: 10s
-      retries: 5
+      retries: 10
 
-  # ─────────────────────────────────────────────────────────────────────────
-  # Schema Registry
-  # ─────────────────────────────────────────────────────────────────────────
+  # The Schema Registry: the JSON Schema of each topic, which the producer
+  # checks every value against and the consumer reads every value with. It
+  # keeps the schemas in the _schemas topic of the Kafka above.
   schema-registry:
-    image: confluentinc/cp-schema-registry:7.7.1
+    image: confluentinc/cp-schema-registry:8.0.0
     container_name: be-boilerplate-schema-registry
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     ports:
-      - "8081:8081"
+      - "127.0.0.1:${SCHEMA_REGISTRY_PORT:-8081}:8081"
     environment:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
-      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:29092
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:19092
+    healthcheck:
+      test: ["CMD-SHELL", "curl --silent --fail http://localhost:8081/subjects > /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
 volumes:
   pgdata:

@@ -1,0 +1,153 @@
+# be-boilerplate — GitHub Actions
+#
+# Copied as-is by `make init NAME=<service>`, which renames be-boilerplate in
+# it. The jobs run the same make targets as a laptop does.
+#
+#   quality      lint (clj-kondo) and formatting (cljfmt)
+#   test         unit tests
+#   integration  integration flows against PostgreSQL
+#   build        uberjar and Docker image; on a vX.Y.Z tag the image is pushed
+#                to the GitHub Container Registry
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  JAVA_VERSION: "21"
+  CLOJURE_CLI_VERSION: "1.12.5.1664"
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - uses: DeLaGuardo/setup-clojure@6d46099eae24853c33c0482f2bb54edf4f1a4c74 # 13.7.0
+        with:
+          cli: ${{ env.CLOJURE_CLI_VERSION }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: clojure-${{ runner.os }}-${{ hashFiles('deps.edn') }}
+          restore-keys: clojure-${{ runner.os }}-
+      - run: make deps
+      - run: make lint
+      - run: make fmt-check
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - uses: DeLaGuardo/setup-clojure@6d46099eae24853c33c0482f2bb54edf4f1a4c74 # 13.7.0
+        with:
+          cli: ${{ env.CLOJURE_CLI_VERSION }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: clojure-${{ runner.os }}-${{ hashFiles('deps.edn') }}
+          restore-keys: clojure-${{ runner.os }}-
+      - run: make test
+
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready --username=ci --dbname=ci"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      DATABASE_URL: jdbc:postgresql://localhost:5432/ci
+      DATABASE_USER: ci
+      DATABASE_PASSWORD: ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - uses: DeLaGuardo/setup-clojure@6d46099eae24853c33c0482f2bb54edf4f1a4c74 # 13.7.0
+        with:
+          cli: ${{ env.CLOJURE_CLI_VERSION }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: clojure-${{ runner.os }}-${{ hashFiles('deps.edn') }}
+          restore-keys: clojure-${{ runner.os }}-
+      - name: Apply the migrations
+        env:
+          PGPASSWORD: ci
+        run: |
+          for migration in db/migrations/*.sql; do
+            psql --host localhost --username ci --dbname ci \
+                 --set ON_ERROR_STOP=1 --file "$migration"
+          done
+      - run: make test-integration
+
+  build:
+    needs: [quality, test, integration]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Build the image
+        run: make docker-build
+      - name: Push the image
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$REGISTRY_TOKEN" | docker login ghcr.io \
+            --username "${{ github.actor }}" --password-stdin
+          make docker-push

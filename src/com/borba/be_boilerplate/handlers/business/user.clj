@@ -1,14 +1,19 @@
 (ns com.borba.be-boilerplate.handlers.business.user
-  "Business logic for User domain.
-  
-   Uses Railway Oriented Programming — every function returns Right or Left.
-   Components are injected via the :components key in the interceptor context."
-  (:require [clojure.spec.alpha :as s]
-            [com.borba.be-boilerplate.specs.user :as specs]
-            [com.borba.be-boilerplate.repository.user :as repo]
-            [borba.railway :as rop])
-  (:import (java.util UUID)
-           (java.time Instant)))
+  "Business logic for the User domain.
+
+   Uses Railway Oriented Programming: every step returns Right or Left, and a
+   failure is data with an :error code that the HTTP layer maps to a status."
+  (:require
+   [borba.railway :as rop]
+   [borba.sql-client :as sql]
+   [clojure.spec.alpha :as s]
+   [com.borba.be-boilerplate.repository.user :as repo]
+   [com.borba.be-boilerplate.specs.user :as specs])
+  (:import
+   (java.sql SQLException)
+   (java.time Instant)))
+
+(set! *warn-on-reflection* true)
 
 ;; ── Railway steps ───────────────────────────────────────────────────────────
 
@@ -17,41 +22,48 @@
   [input]
   (if (s/valid? ::specs/create-input input)
     (rop/right input)
-    (rop/left {:error   :validation-failed
-               :details (s/explain-str ::specs/create-input input)})))
+    (rop/failure :validation-failed
+                 {:details (s/explain-str ::specs/create-input input)})))
+
+(defn- email-taken
+  [email]
+  (rop/failure :user/email-already-exists {:email email}))
 
 (defn- check-email-unique
   "Ensures the email is not already taken."
   [components]
   (fn [input]
     (if (repo/find-by-email components (:email input))
-      (rop/left {:error :email-already-exists
-                 :email (:email input)})
+      (email-taken (:email input))
       (rop/right input))))
 
 (defn- enrich-user
-  "Adds generated ID and timestamp to user data."
+  "Adds the generated id and the creation time."
   [input]
   (rop/right
    (assoc input
-          :id         (str (UUID/randomUUID))
+          :id         (random-uuid)
           :created-at (Instant/now))))
 
 (defn- persist-user
-  "Persists user to database."
+  "Persists the user. Two requests with the same email can both pass the check,
+   so the unique constraint has the last word, and is the same failure."
   [components]
   (fn [user]
-    (rop/try-right repo/insert! components user)))
+    (try
+      (rop/right (repo/insert! components user))
+      (catch SQLException cause
+        (if (= :unique-violation (:error (sql/error-data cause)))
+          (email-taken (:email user))
+          (throw cause))))))
 
 ;; ── Public API ──────────────────────────────────────────────────────────────
 
 (defn create!
-  "Creates a new user using Railway Oriented Programming.
-   
-   Pipeline:
-     validate → check-unique → enrich → persist
-   
-   Returns Right{:id :name :email :created-at} or Left{:error ...}"
+  "Creates a user: validate, check the email, enrich, persist.
+   Returns Right{user} or Left{:error ...}.
+   - components: the service components, with :sql-client
+   - input: the request body, {:name <string> :email <string>}"
   [components input]
   (rop/|> input
           validate-create-input
@@ -60,9 +72,11 @@
           (persist-user components)))
 
 (defn get-by-id
-  "Retrieves a user by ID. Returns Right{user} or Left{:error :not-found}."
+  "Returns Right{user}, or Left{:error :not-found} when there is no user with
+   the id or the id is not a UUID.
+   - components: the service components, with :sql-client
+   - id: the id of the user, as text"
   [components id]
-  (if-let [user (repo/find-by-id components id)]
+  (if-let [user (some->> (parse-uuid id) (repo/find-by-id components))]
     (rop/right user)
-    (rop/left {:error :not-found
-               :id    id})))
+    (rop/failure :not-found {:id id})))

@@ -1,169 +1,164 @@
 # be-boilerplate
 
-![DEPRECATED, maintenance resumes 2027-04-06](https://img.shields.io/badge/DEPRECATED-maintenance%20resumes%202027--04--06-red)
+[![CI](https://github.com/AF2B/be-boilerplate/actions/workflows/ci.yml/badge.svg)](https://github.com/AF2B/be-boilerplate/actions/workflows/ci.yml)
 
-> Clojure microservice boilerplate — Data-Driven, Event-Sourced, Railway-Oriented.
+> Clojure microservice boilerplate on the Borba framework — Data-Driven, Event-Sourced, Railway-Oriented.
 
 ## Stack
 
-| Layer              | Tech                                     |
-|--------------------|------------------------------------------|
-| Language           | Clojure 1.12                             |
-| HTTP               | Pedestal + Jetty                         |
-| Config             | Aero + Integrant (Data-Driven EDN)       |
-| Validation         | spec.alpha                               |
-| Database           | PostgreSQL 16 (next.jdbc + HikariCP)     |
-| Cache              | Redis (Carmine)                          |
-| Messaging          | Kafka + Schema Registry                  |
-| Error Handling     | Railway Oriented Programming (Either)    |
-| Event Sourcing     | PostgreSQL-backed Event Store            |
-| Testing            | clojure.test + state-flow + test.check   |
+| Layer          | Tech                                                                 |
+|----------------|----------------------------------------------------------------------|
+| Language       | Clojure 1.12 on JDK 21                                               |
+| Lifecycle      | `borba-core-component`: Integrant + Aero profiles, readiness, drain  |
+| HTTP           | Pedestal 0.8 + Jetty 12 (`borba-server`, `-routes`, `-handlers`, `-interceptors`) |
+| Validation     | `clojure.spec.alpha`                                                 |
+| Database       | PostgreSQL 16 via `borba-sql-client-component` (next.jdbc + HikariCP) |
+| Event Sourcing | `borba-event-store-component` (append-only PostgreSQL table)         |
+| Cache          | Redis via `borba-redis-component` (Carmine)                          |
+| Messaging      | Kafka 4 via `borba-kafka-producer-component` / `-consumer-component` |
+| Contracts      | Confluent Schema Registry: a JSON Schema per topic, checked on send and read |
+| Errors         | `borba-railway-component`: Either + HTTP mapping                     |
+| Testing        | `clojure.test`, `test.check`, `borba-state-flow-component`, Kaocha   |
 
 ## Quick Start
 
 ```bash
-# Start infrastructure
-make docker-up
-
-# Install dependencies
-make deps
-
-# Run (staging profile)
-make run
-
-# Run tests
-make test
-
-# Generate a new microservice
-make init NAME=payment-service
+cp .env.example .env     # local values, never committed
+make docker-up           # PostgreSQL, Redis, Kafka, Schema Registry
+make run                 # profile stag
 ```
+
+```bash
+curl localhost:8080/health
+curl localhost:8080/readyz
+
+curl -X POST localhost:8080/v1/users \
+  -H "Content-Type: application/json" \
+  -d '{"name":"André Borba","email":"andre@borba.com"}'
+
+curl -X POST localhost:8080/v1/orders \
+  -H "Content-Type: application/json" \
+  -d '{"user-id":"<uuid>","items":[{"product":"Widget","quantity":2,"price":29.99}]}'
+```
+
+## A new service
+
+```bash
+make init NAME=payment-service
+cd ../payment-service
+cp .env.example .env
+make docker-up && make run
+```
+
+`make init` copies the boilerplate, renames `be-boilerplate` / `be_boilerplate` everywhere
+(namespaces, directories, configuration, workflow) and makes the first commit on `main`. The copy is
+a service of its own from then on: later changes to the boilerplate do not reach it.
 
 ## Project Structure
 
 ```
-src/
-├── config.edn                              # Profile router (→ system/*.edn)
-└── com/borba/be_boilerplate/
-    ├── core.clj                            # Namespace loader (ig/init-key registry)
-    ├── components/                         # Component injection EDN + init namespaces
-    │   ├── base.edn                        # Base component map (:sql-client, :redis, etc.)
-    │   ├── stag.edn / prod.edn / test.edn # Per-profile component overrides
-    │   ├── database.clj                    # PostgreSQL (next.jdbc + HikariCP)
-    │   ├── redis.clj                       # Redis (Carmine)
-    │   ├── kafka_producer.clj              # Kafka producer
-    │   ├── kafka_consumer.clj              # Kafka consumer
-    │   └── event_store.clj                 # Event Store (PostgreSQL)
-    ├── system/                             # System config EDN
-    │   ├── base.edn                        # Integrant system keys (server, routes, DB, etc.)
-    │   ├── stag.edn / prod.edn / test.edn # Per-profile route + config overrides
-    │   └── projection.clj                  # Event projections
-    ├── handlers/
-    │   ├── http/
-    │   │   ├── interceptors.clj            # Pedestal interceptors (components)
-    │   │   └── routes.clj                  # defmethod ig/init-key :service/handlers
-    │   └── business/
-    │       ├── user.clj                    # User business logic (Railway)
-    │       └── order.clj                   # Order business logic (Railway + Events)
-    ├── repository/
-    │   ├── user.clj                        # User DB queries
-    │   └── order.clj                       # Order DB queries
-    ├── specs/
-    │   ├── user.clj                        # User specs
-    │   └── order.clj                       # Order specs
-    ├── events/
-    │   ├── producer.clj                    # Domain event publishers
-    │   └── consumer.clj                    # Kafka consumer handlers
-    └── util/
-        ├── railway.clj                     # Either monad (ROP)
-        ├── predicates.clj                  # Common predicates
-        └── validation.clj                  # Spec validation helpers
+.
+├── deps.edn                     # Borba components as git deps, aliases
+├── build.clj                    # uberjar (tools.build)
+├── Makefile                     # every command, locally and in CI
+├── docker-compose.yml           # local PostgreSQL, Redis, Kafka (KRaft), Schema Registry
+├── Dockerfile                   # multi-stage image, no default PROFILE
+├── .env.example                 # local variables; copy to .env
+├── db/migrations/               # SQL applied in order (users, orders)
+├── dev/user.clj                 # REPL: (go), (halt)
+├── .github/workflows/ci.yml     # lint, tests, integration, image
+├── src/
+│   ├── config.edn               # profile router → system/<profile>.edn
+│   └── com/borba/be_boilerplate/
+│       ├── system/
+│       │   ├── base.edn         # every Integrant key
+│       │   ├── stag.edn / prod.edn / test.edn   # per-profile overrides
+│       │   ├── components.clj   # :service/components, what handlers can reach
+│       │   └── projection.clj   # event-store folds (empty)
+│       ├── handlers/
+│       │   ├── http/
+│       │   │   ├── handlers.clj      # defmethod registry/handler
+│       │   │   └── interceptors.clj  # defmethod registry/interceptor
+│       │   └── business/
+│       │       ├── user.clj          # Railway
+│       │       └── order.clj         # Railway + Event Sourcing + Kafka
+│       ├── adapters/             # clients of external services (empty)
+│       ├── components/           # Integrant components of the service (empty)
+│       ├── repository/           # SQL via borba.sql-client
+│       ├── specs/                # clojure.spec contracts
+│       ├── events/
+│       │   ├── schemas/          # the JSON Schema of each topic (EDN)
+│       │   ├── producer.clj      # domain events to Kafka
+│       │   └── consumer.clj      # Kafka handlers
+│       └── util/predicates.clj
+└── test/
+    ├── com/borba/be_boilerplate/ # unit tests and properties
+    ├── flows/                    # ^:integration state-flow flows
+    └── generators/               # test.check generators
 ```
 
 ## Architecture
 
-### Component Injection
+### Component injection
 
-Every layer receives external dependencies through the `:components` map:
+Every handler and interceptor receives `:service/components`, a map declared in `base.edn`:
 
 ```clojure
-;; In repository
 (defn find-by-id [components id]
-  (let [{:keys [sql-client]} components]
-    (jdbc/execute-one! sql-client ["SELECT * FROM users WHERE id = ?" id])))
+  (sql/find-one-by! (:sql-client components) :users {:id id}))
 ```
 
 ### Railway Oriented Programming
 
-Business functions return `Right` (success) or `Left` (failure):
+Business functions return `Right` or `Left`; a failure is data with an `:error` code that maps to a
+status:
 
 ```clojure
 (rop/|> input
-    validate-create-input
-    (check-email-unique components)
-    enrich-user
-    (persist-user components))
-```
-
-### Interceptors as Components
-
-Interceptors are defined in `interceptors.clj` and composed into chains in `routes.clj`:
-
-```clojure
-(defmethod ig/init-key :service/handlers [_ {:keys [components]}]
-  {:user/create [error-handler inject-components parse-body json-response user-create-handler]})
-```
-
-Routes are declared in the system EDN:
-
-```edn
-{:http/routes {:routes [["/v1/users" :post :user/create]]}}
+        validate-create-input
+        (check-email-unique components)
+        enrich-user
+        (persist-user components))
 ```
 
 ### Event Sourcing
 
-Events are stored in PostgreSQL and published to Kafka:
+An order and its `order-created` event are stored in one transaction, then published:
 
 ```
-validate → enrich → persist → append-event → publish-kafka
+validate → total → enrich → persist order + append event (one transaction) → publish to Kafka
 ```
+
+### Event contracts
+
+Each topic has a JSON Schema in `events/schemas/`, held by the Schema Registry. The producer validates
+every value against it before sending, and the consumer reads every value with it. Locally (`stag`)
+the service registers its schemas at start; in `prod` it only checks they are registered, and fails
+the start otherwise, so a contract changes on purpose and never as a side effect of a deploy.
+
+### Readiness and graceful shutdown
+
+`/readyz` is `200` only when the lifecycle is ready and the database answers. On `SIGTERM` the service
+turns readiness off, keeps serving for `:drain-delay-ms` (15 s in `prod`) so the load balancer stops
+routing, then stops the server and the components.
 
 ## Makefile Commands
 
-| Command                     | Description                              |
-|-----------------------------|------------------------------------------|
-| `make run`                  | Run with default (stag) profile          |
-| `make stag`                 | Run with staging profile                 |
-| `make prod`                 | Run with production profile              |
-| `make test`                 | Run tests (test profile)                 |
-| `make test-stag`            | Run tests with staging config            |
-| `make coverage`             | Run tests + coverage report              |
-| `make build`                | Build uberjar                            |
-| `make docker-up`            | Start infra (Postgres, Redis, Kafka)     |
-| `make docker-down`          | Stop infra                               |
-| `make init NAME=my-service` | Scaffold new microservice                |
+| Command                     | Description                                       |
+|-----------------------------|---------------------------------------------------|
+| `make run`                  | Run with `PROFILE` (default `stag`)               |
+| `make run PROFILE=prod`     | Run with another profile                          |
+| `make test`                 | Unit tests                                        |
+| `make test-integration`     | Integration flows (needs `make docker-up`)        |
+| `make coverage`             | Unit tests + coverage report                      |
+| `make lint` / `make fmt-check` | clj-kondo (no warnings) / cljfmt               |
+| `make build`                | Uberjar at `target/app.jar`                       |
+| `make docker-build`         | Image tagged with sha, version and `latest`       |
+| `make docker-up` / `docker-down` | Start / stop the local infrastructure (with the Schema Registry) |
+| `make init NAME=x`          | Scaffold a new service in `../x`                  |
+| `make outdated`             | Dependencies with a newer version                 |
 
-## Demo Endpoints
-
-```bash
-# Health
-curl http://localhost:8080/health
-
-# Create user
-curl -X POST http://localhost:8080/v1/users \
-  -H "Content-Type: application/json" \
-  -d '{"name":"André Borba","email":"andre@borba.com"}'
-
-# Get user
-curl http://localhost:8080/v1/users/<uuid>
-
-# Create order
-curl -X POST http://localhost:8080/v1/orders \
-  -H "Content-Type: application/json" \
-  -d '{"user-id":"<uuid>","items":[{"product":"Widget","quantity":2,"price":29.99}]}'
-
-# Get order
-curl http://localhost:8080/v1/orders/<uuid>
-```
+See [HOW-TO-USE.md](HOW-TO-USE.md) for adding handlers, interceptors, consumers, queries and components.
 
 ## License
 

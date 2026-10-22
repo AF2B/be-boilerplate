@@ -1,138 +1,121 @@
-.PHONY: run stag prod test test-stag test-prod coverage clean deps build \
+.PHONY: run stag prod test test-integration coverage clean deps build \
         docker-build docker-push docker-run docker-up docker-down \
-        fmt-check fmt-fix init lint help
+        fmt-check fmt-fix init lint outdated help
+
+SHELL          := /bin/bash
+.DEFAULT_GOAL  := help
 
 SERVICE_NAME   = be-boilerplate
-RUN            = run
 STAG_PROFILE   = stag
 PROD_PROFILE   = prod
-TEST_PROFILE   = test
+
+# The profile of `make run`. Local development defaults to stag; anything that
+# is not a laptop (the image, the orchestrator) sets PROFILE explicitly.
+PROFILE       ?= $(STAG_PROFILE)
 
 REGISTRY       = ghcr.io/af2b
 IMAGE          = $(REGISTRY)/$(SERVICE_NAME)
 VERSION        = $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 SHA            = $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-PORT           = 8080
-PROFILE        = prod
+PORT          ?= 8080
 
-run:
-	@echo "▶ Running with default (stag) profile..."
-	@clojure -M:run
+# Local configuration (credentials, ports) lives in .env, never in the
+# repository. Copy .env.example to .env to start.
+-include .env
+export
 
-stag:
-	@echo "▶ Running with staging profile..."
-	@clojure -M:$(RUN) $(STAG_PROFILE)
+run: ## Run with PROFILE (default: stag)
+	@echo "▶ Running with profile $(PROFILE)..."
+	@clojure -M:run $(PROFILE)
 
-prod:
-	@echo "▶ Running with production profile..."
-	@clojure -M:$(RUN) $(PROD_PROFILE)
+stag: ## Run with the staging profile
+	@$(MAKE) --no-print-directory run PROFILE=$(STAG_PROFILE)
 
-test:
-	@echo "▶ Running tests with test profile..."
-	@clojure -M:test -m kaocha.runner
-	@echo "✅ Tests passed"
+prod: ## Run with the production profile
+	@$(MAKE) --no-print-directory run PROFILE=$(PROD_PROFILE)
 
-test-stag:
-	@echo "▶ Running tests with staging config..."
-	@clojure -M:test -m kaocha.runner --profile stag
-	@echo "✅ Tests passed (stag)"
+test: ## Run the unit tests
+	@echo "▶ Running unit tests..."
+	@clojure -M:test --focus :unit
 
-test-prod:
-	@echo "▶ Running tests with production config..."
-	@clojure -M:test -m kaocha.runner --profile prod
-	@echo "✅ Tests passed (prod)"
+test-integration: ## Run the integration tests (needs make docker-up)
+	@echo "▶ Running integration tests..."
+	@clojure -M:test --focus :integration
 
-coverage:
-	@echo "▶ Running tests with coverage..."
-	@clojure -M:test -m kaocha.runner --plugin kaocha.plugin/cloverage --cov-output target/coverage
-	@echo "✅ Coverage report: target/coverage/index.html"
+coverage: ## Run the unit tests with coverage (target/coverage/)
+	@echo "▶ Running unit tests with coverage..."
+	@clojure -M:coverage
 
-fmt-check:
-	@echo "▶ Checking formatting (src/ test/)..."
-	@clojure -M:fmt-check
-	@echo "✅ Formatting OK"
+fmt-check: ## Check formatting
+	@clojure -M:fmt check src test dev build.clj
 
-fmt-fix:
-	@echo "▶ Fixing formatting (src/ test/)..."
-	@clojure -M:fmt-fix
-	@echo "✅ Formatting fixed"
+fmt-fix: ## Fix formatting
+	@clojure -M:fmt fix src test dev build.clj
 
-lint:
-	@echo "▶ Linting (src/ test/)..."
-	@clojure -M:lint
-	@echo "✅ Lint OK"
+lint: ## Lint with clj-kondo, failing on any warning
+	@mkdir -p .clj-kondo
+	@clojure -M:lint --copy-configs --dependencies --skip-lint \
+		--lint "$$(clojure -Spath -M:test)" > /dev/null
+	@clojure -M:lint --lint src test dev build.clj --fail-level warning
 
-build:
+outdated: ## Report dependencies that have a newer version
+	@clojure -M:outdated
+
+build: ## Build the uberjar at target/app.jar
 	@echo "▶ Building uberjar..."
 	@APP_VERSION=$(VERSION) clojure -T:build uber
 	@echo "✅ Built: target/app.jar"
 
-clean:
-	@echo "▶ Cleaning build artifacts..."
+clean: ## Remove .cpcache and target
 	@rm -rf .cpcache target
-	@echo "✅ Clean"
 
-deps:
-	@echo "▶ Resolving dependencies..."
-	@clojure -P
-	@clojure -P -M:test
-	@echo "✅ Dependencies resolved"
+deps: ## Resolve and cache every dependency
+	@for alias in test coverage lint fmt outdated; do clojure -P -M:$$alias || exit 1; done
+	@clojure -P -T:build
 
-docker-build:
-	@echo "▶ Building Docker image..."
+docker-build: ## Build the image (tags: sha, version, latest)
 	@docker build \
 		--build-arg APP_VERSION=$(VERSION) \
-		--build-arg PORT=$(PORT) \
-		--build-arg PROFILE=$(PROFILE) \
 		-t $(IMAGE):$(SHA) \
 		-t $(IMAGE):$(VERSION) \
 		-t $(IMAGE):latest \
 		.
-	@echo "✅ Image built: $(IMAGE):latest"
 
-docker-push:
-	@echo "▶ Pushing Docker image..."
+docker-push: ## Push every tag of the image
 	@docker push $(IMAGE):$(SHA)
 	@docker push $(IMAGE):$(VERSION)
 	@docker push $(IMAGE):latest
-	@echo "✅ Image pushed: $(IMAGE)"
 
-docker-run:
+docker-run: ## Run the image with PROFILE and the variables of .env
 	@docker run --rm \
-		-p $(PORT):$(PORT) \
+		--network host \
+		--env-file .env \
 		-e PROFILE=$(PROFILE) \
 		$(IMAGE):latest
 
-docker-up:
-	@echo "▶ Starting infrastructure (PostgreSQL, Redis, Kafka, Schema-Registry)..."
-	@docker compose up -d
-	@echo "✅ Infrastructure running"
+docker-up: ## Start PostgreSQL, Redis, Kafka and the Schema Registry
+	@docker compose up -d --wait
 
-docker-down:
-	@echo "▶ Stopping infrastructure..."
+docker-down: ## Stop the infrastructure and remove its volumes
 	@docker compose down -v
-	@echo "✅ Infrastructure stopped"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Scaffolding — Generate a new microservice from this boilerplate
 # ─────────────────────────────────────────────────────────────────────────────
 #
 # Usage:
-#   make init NAME=exemplo-service
+#   make init NAME=payment-service
 #
 # This will:
-#   1. Copy the boilerplate to ../exemplo-service (excluding component folders)
-#   2. Rename all directories from be_boilerplate → exemplo_service
-#   3. Replace all namespace references (be-boilerplate → exemplo-service)
-#   4. Maintain the com/borba/<service> convention
-#
-# The borba-*-component folders are NOT copied — they are separate
-# repositories to be added as deps once pushed to git.
+#   1. Copy the boilerplate to ../payment-service
+#   2. Rename the directories from be_boilerplate → payment_service
+#   3. Replace every reference (be-boilerplate → payment-service)
+#   4. Initialise a git repository on main with one commit
 # ─────────────────────────────────────────────────────────────────────────────
 
-init:
+init: ## Scaffold a new service: make init NAME=payment-service
 ifndef NAME
-	$(error ❌ NAME is required. Usage: make init NAME=payment-service)
+	$(error NAME is required. Usage: make init NAME=payment-service)
 endif
 	@echo "▶ Scaffolding new service: $(NAME)..."
 	$(eval UNDERSCORE := $(subst -,_,$(NAME)))
@@ -144,103 +127,48 @@ endif
 		exit 1; \
 	fi
 	@mkdir -p "$(TARGET_DIR)"
-	@# Copy everything EXCEPT borba-*-component folders, .git, .cpcache and target
 	@find . -mindepth 1 -maxdepth 1 \
 		! -name '.git' \
 		! -name '.cpcache' \
+		! -name '.lsp' \
+		! -name '.env' \
 		! -name 'target' \
-		! -name 'borba-*-component' \
+		! -name 'CHANGELOG.md' \
 		-exec cp -r {} "$(TARGET_DIR)/" \;
-	@# Remove any borba-*-component dirs that may have slipped through (glob safety)
-	@find "$(TARGET_DIR)" -maxdepth 1 -type d -name 'borba-*-component' -exec rm -rf {} + 2>/dev/null || true
+	@# Keep the lint configuration, not the cache or the imported configs
+	@find "$(TARGET_DIR)/.clj-kondo" -mindepth 1 -maxdepth 1 \
+		! -name 'config.edn' -exec rm -rf {} + 2>/dev/null || true
 	@echo "  ├─ Copied boilerplate to $(TARGET_DIR)"
-	@# Rename source directories
-	@if [ -d "$(TARGET_DIR)/src/com/borba/$(SRC_UNDERSCORE)" ]; then \
-		mv "$(TARGET_DIR)/src/com/borba/$(SRC_UNDERSCORE)" \
-		   "$(TARGET_DIR)/src/com/borba/$(UNDERSCORE)"; \
-	fi
-	@if [ -d "$(TARGET_DIR)/test/com/borba/$(SRC_UNDERSCORE)" ]; then \
-		mv "$(TARGET_DIR)/test/com/borba/$(SRC_UNDERSCORE)" \
-		   "$(TARGET_DIR)/test/com/borba/$(UNDERSCORE)"; \
-	fi
+	@for dir in src test; do \
+		if [ -d "$(TARGET_DIR)/$$dir/com/borba/$(SRC_UNDERSCORE)" ]; then \
+			mv "$(TARGET_DIR)/$$dir/com/borba/$(SRC_UNDERSCORE)" \
+			   "$(TARGET_DIR)/$$dir/com/borba/$(UNDERSCORE)"; \
+		fi; \
+	done
 	@echo "  ├─ Renamed directories"
-	@# Replace all references in files
 	@find "$(TARGET_DIR)" -type f \
-		\( -name "*.clj" -o -name "*.edn" -o -name "*.md" \
-		   -o -name "Makefile" -o -name "Dockerfile" \
+		\( -name "*.clj" -o -name "*.edn" -o -name "*.md" -o -name "*.sql" \
+		   -o -name "Makefile" -o -name "Dockerfile" -o -name ".env.example" \
 		   -o -name "*.yml" -o -name "*.yaml" -o -name "*.sh" \) \
 		-exec sed -i'' \
 			-e "s|$(SRC_UNDERSCORE)|$(UNDERSCORE)|g" \
 			-e "s|$(SRC_DASH)|$(NAME)|g" \
-			-e "s|SERVICE_NAME   = $(SRC_DASH)|SERVICE_NAME   = $(NAME)|g" \
 			{} +
-	@echo "  ├─ Updated all namespace references"
-	@# Initialize git repository for the new service
-	@git -C "$(TARGET_DIR)" init -q
-	@git -C "$(TARGET_DIR)" symbolic-ref HEAD refs/heads/master
+	@echo "  ├─ Updated every reference"
+	@git -C "$(TARGET_DIR)" init -q -b main
 	@git -C "$(TARGET_DIR)" add .
 	@git -C "$(TARGET_DIR)" commit -q -m "chore: scaffold $(NAME) from be-boilerplate"
-	@echo "  ├─ Git repository initialized (branch: master)"
-	@echo "  └─ Done"
+	@echo "  └─ Git repository initialised (branch: main)"
 	@echo ""
-	@echo "✅ Service '$(NAME)' scaffolded with CI/CD at $(TARGET_DIR)"
+	@echo "✅ Service '$(NAME)' scaffolded at $(TARGET_DIR)"
 	@echo ""
-	@echo "   ── Optional: publish local components to GitLab ─────────────────"
-	@echo "   The borba-routes, borba-server and borba-railway components are"
-	@echo "   currently referenced via :local/root in deps.edn. Once you push"
-	@echo "   them as separate repos, replace with :git/url + :git/tag + :git/sha."
-	@echo ""
-	@echo "   ── Push to GitLab ────────────────────────────────────────────────"
 	@echo "   cd $(TARGET_DIR)"
-	@echo "   git remote add origin git@gitlab.com:<namespace>/$(NAME).git"
-	@echo "   git push -u origin master"
+	@echo "   cp .env.example .env"
+	@echo "   make docker-up && make run"
 	@echo ""
-	@echo "   ── Start developing ──────────────────────────────────────────────"
-	@echo "   make deps && make docker-up && make run"
-	@echo ""
-	@echo "   CI/CD is ready — push a vX.X.X tag to trigger the full pipeline."
-	@echo ""
+	@echo "   To publish it: create the GitHub repository, then"
+	@echo "   git remote add origin git@github.com:<owner>/$(NAME).git"
+	@echo "   git push -u origin main"
 
-help:
-	@echo ""
-	@echo "╔══════════════════════════════════════════════════════════════════╗"
-	@echo "║               $(SERVICE_NAME) — Makefile                       ║"
-	@echo "╚══════════════════════════════════════════════════════════════════╝"
-	@echo ""
-	@echo "  Development:"
-	@echo "    run            Run with default (stag) profile"
-	@echo "    stag           Run with staging profile"
-	@echo "    prod           Run with production profile"
-	@echo ""
-	@echo "  Testing:"
-	@echo "    test           Run tests with test profile"
-	@echo "    test-stag      Run tests with staging config"
-	@echo "    test-prod      Run tests with production config"
-	@echo "    coverage       Run tests + coverage report (target/coverage/)"
-	@echo ""
-	@echo "  Formatting:"
-	@echo "    fmt-check      Check formatting without modifying files"
-	@echo "    fmt-fix        Fix formatting in src/ and test/"
-	@echo ""
-	@echo "  Build:"
-	@echo "    build          Compile uberjar → target/app.jar"
-	@echo "    clean          Remove .cpcache & target"
-	@echo "    deps           Resolve & cache all dependencies"
-	@echo ""
-	@echo "  Docker:"
-	@echo "    docker-build   Build image (tags: sha, version, latest)"
-	@echo "    docker-push    Push all tags to registry"
-	@echo "    docker-run     Run container on PORT=$(PORT)"
-	@echo "    docker-up      Start infra (Postgres, Redis, Kafka)"
-	@echo "    docker-down    Stop & remove infra containers"
-	@echo ""
-	@echo "  Scaffolding:"
-	@echo "    init NAME=x    Generate new microservice from boilerplate"
-	@echo "                   Example: make init NAME=payment-service"
-	@echo "                   Note: borba-*-component folders are excluded"
-	@echo ""
-	@echo "  Variables (override with make <target> VAR=value):"
-	@echo "    REGISTRY=$(REGISTRY)"
-	@echo "    PORT=$(PORT)"
-	@echo "    PROFILE=$(PROFILE)"
-	@echo ""
+help: ## List the targets
+	@awk 'BEGIN {FS = ":.*## "} /^[a-zA-Z_-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)

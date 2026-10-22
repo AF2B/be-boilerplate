@@ -1,38 +1,34 @@
 (ns com.borba.be-boilerplate.events.producer
-  "Convenience namespace for publishing domain events to Kafka.
-  
-   This namespace provides domain-specific wrappers around the
-   generic kafka-producer component. The actual producer is injected
-   via components.
-   
-   Usage in business layer:
+  "Domain events published to Kafka.
+
+   Thin, domain-named wrappers around the kafka-producer component, which is
+   injected through the components:
+
      (let [{:keys [kafka-producer]} components]
-       (producer/order-created! kafka-producer order))"
-  (:require [borba.kafka-producer :as kafka]))
+       (producer/order-created! kafka-producer order))
+
+   A message is an envelope of :event-type and :data, sent as JSON with the id
+   of the aggregate as its key, so the events of an aggregate stay in order.
+   The envelope is the contract of the topic: events/schemas/order_events.edn,
+   which the Schema Registry holds and every value is checked against. A value
+   that the schema refuses is not sent, and send! throws :schema-violation."
+  (:require
+   [borba.kafka-producer :as kafka]))
+
+(def order-events-topic
+  "The topic of the order events."
+  "order-events")
+
+(def ^:private order-created "order-created")
 
 (defn order-created!
-  "Publishes an order-created event."
+  "Publishes an order-created event, and returns the future of where it was
+   stored. A failure to deliver it is logged by the producer.
+   - kafka-producer: the kafka-producer component
+   - order: the order as it was stored"
   [kafka-producer order]
   (kafka/send! kafka-producer
-               "order-events"
+               order-events-topic
                (:id order)
-               {:event-type "order-created"
+               {:event-type order-created
                 :data       order}))
-
-(defn order-confirmed!
-  "Publishes an order-confirmed event."
-  [kafka-producer order-id]
-  (kafka/send! kafka-producer
-               "order-events"
-               order-id
-               {:event-type "order-confirmed"
-                :data       {:order-id order-id}}))
-
-(defn user-created!
-  "Publishes a user-created event."
-  [kafka-producer user]
-  (kafka/send! kafka-producer
-               "user-events"
-               (:id user)
-               {:event-type "user-created"
-                :data       user}))

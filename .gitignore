@@ -1,13 +1,28 @@
+# Build output and tool caches
 .cpcache/
-target/
 .nrepl-port
 .rebel_readline_history
-*.jar
+.lsp/.cache/
+.calva/
+.portal/
+target/
 *.class
-.DS_Store
+*.jar
+
+# clj-kondo: the project configuration is committed, the cache and the
+# configurations imported from the dependencies are not
+.clj-kondo/*
+!.clj-kondo/config.edn
+
+# Editors
 .idea/
 *.iml
+.vscode/
+
+# Local configuration: values never belong in the repository
 .env
-node_modules/
-.calva
-.clj-kondo
+.env.*
+!.env.example
+
+# Operating system
+.DS_Store
