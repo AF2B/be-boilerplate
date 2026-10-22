@@ -20,8 +20,8 @@
 
   io.github.af2b/borba-event-store-component
   {:git/url "https://github.com/AF2B/borba-event-store-component"
-   :git/tag "v2.0.0"
-   :git/sha "33457ed36c58d1d2494b1ee3cfc1249fe8892699"}
+   :git/tag "v2.0.1"
+   :git/sha "3f392c31215544b2b1382a5ee61cbcbc9d400e5f"}
 
   io.github.af2b/borba-redis-component
   {:git/url "https://github.com/AF2B/borba-redis-component"

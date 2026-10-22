@@ -64,7 +64,7 @@ a service of its own from then on: later changes to the boilerplate do not reach
 ├── docker-compose.yml           # local PostgreSQL, Redis, Kafka (KRaft), Schema Registry
 ├── Dockerfile                   # multi-stage image, no default PROFILE
 ├── .env.example                 # local variables; copy to .env
-├── db/migrations/               # SQL applied in order (users, orders)
+├── db/migrations/               # SQL applied in order (users, orders, relay positions)
 ├── dev/user.clj                 # REPL: (go), (halt)
 ├── .github/workflows/ci.yml     # lint, tests, integration, image
 ├── src/
@@ -74,6 +74,7 @@ a service of its own from then on: later changes to the boilerplate do not reach
 │       │   ├── base.edn         # every Integrant key
 │       │   ├── stag.edn / prod.edn / test.edn   # per-profile overrides
 │       │   ├── components.clj   # :service/components, what handlers can reach
+│       │   ├── event_relay.clj  # publishes the event store to Kafka (the outbox)
 │       │   └── projection.clj   # event-store folds (empty)
 │       ├── handlers/
 │       │   ├── http/
@@ -121,13 +122,19 @@ status:
         (persist-user components))
 ```
 
-### Event Sourcing
+### Event Sourcing, with the event store as the outbox
 
-An order and its `order-created` event are stored in one transaction, then published:
+An order and its `order-created` event are stored in one transaction. The request never calls Kafka, so it
+is neither slowed nor failed by it; the event relay publishes what the event store holds:
 
 ```
-validate → total → enrich → persist order + append event (one transaction) → publish to Kafka
+request:  validate → total → enrich → persist order + append event (one transaction) → 201
+relay:    event store feed (after its position) → Kafka, in order → move its position
 ```
+
+Delivery is at-least-once: the relay commits its position after the events are on Kafka, so consumers must be
+safe to receive an event twice. Of the instances of a service, one relays at a time (its row in
+`event_relay_positions` is the lock).
 
 ### Event contracts
 

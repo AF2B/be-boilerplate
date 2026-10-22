@@ -29,6 +29,7 @@
   borba.routes.component
   borba.server.component
   com.borba.be-boilerplate.system.components
+  com.borba.be-boilerplate.system.event-relay
   com.borba.be-boilerplate.system.projection
   com.borba.be-boilerplate.handlers.http.handlers
   com.borba.be-boilerplate.handlers.http.interceptors]
@@ -135,6 +136,17 @@
    :event-store    #ig/ref :components/event-store
    :redis          #ig/ref :components/redis
    :kafka-producer #ig/ref :components/kafka-producer}
+
+  ;; ── Event relay ────────────────────────────────────────────────────────
+  ;; The event store is the outbox: requests store their events and never
+  ;; call Kafka; the relay publishes them, in order, at-least-once. :topics
+  ;; says the topic of each aggregate type.
+  :service/event-relay
+  {:database       #ig/ref :components/database
+   :event-store    #ig/ref :components/event-store
+   :kafka-producer #ig/ref :components/kafka-producer
+   :relay-name     "be-boilerplate"
+   :topics         {"order" "order-events"}}
 
   ;; ── Projections ────────────────────────────────────────────────────────
   :projection/folding-funcs {}}}
