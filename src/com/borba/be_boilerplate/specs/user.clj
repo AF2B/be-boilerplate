@@ -4,13 +4,14 @@
    Contract
    --------
    Input (create):  {:name <string> :email <string>}
-   Output:          {:id <uuid> :name <string> :email <string> :created-at <inst>}"
+   Output:          {:id <UUID> :name <string> :email <string>
+                     :created-at <inst>}"
   (:require [clojure.spec.alpha :as s]
             [com.borba.be-boilerplate.util.predicates :as pred]))
 
 ;; ── Primitive Specs ─────────────────────────────────────────────────────────
 
-(s/def ::id pred/valid-uuid?)
+(s/def ::id uuid?)
 
 (s/def ::name (s/and string? pred/non-blank? #(<= (count %) 255)))
 

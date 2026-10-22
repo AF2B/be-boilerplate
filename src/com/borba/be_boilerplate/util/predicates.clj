@@ -1,24 +1,30 @@
 (ns com.borba.be-boilerplate.util.predicates
   "Common predicate functions used across specs and validations."
-  (:require [clojure.string :as str]))
+  (:require
+   [clojure.string :as str]))
+
+(def ^:private email-pattern #"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 (defn non-blank?
-  "Returns true if s is a non-blank string."
+  "Returns true if s is a string with something other than whitespace.
+   - s: any value"
   [s]
-  (and (string? s) (seq (str/trim s))))
+  (and (string? s) (not (str/blank? s))))
 
 (defn positive-int?
-  "Returns true if n is a positive integer."
+  "Returns true if n is a positive integer.
+   - n: any value"
   [n]
   (and (integer? n) (pos? n)))
 
 (defn valid-email?
-  "Basic email validation."
+  "Returns true if s looks like an email address (basic validation).
+   - s: any value"
   [s]
-  (and (string? s) (re-matches #"^[^\s@]+@[^\s@]+\.[^\s@]+$" s)))
+  (and (string? s) (some? (re-matches email-pattern s))))
 
 (defn valid-uuid?
-  "Returns true if s is a valid UUID string."
+  "Returns true if s is the text of a UUID.
+   - s: any value"
   [s]
-  (and (string? s)
-       (re-matches #"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" s)))
+  (and (string? s) (some? (parse-uuid s))))

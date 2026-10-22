@@ -1,23 +1,25 @@
 (ns generators.user
-  "Test data generators for User domain."
-  (:require [clojure.test.check.generators :as gen]))
+  "Test data generators for the User domain."
+  (:require
+   [clojure.string :as str]
+   [clojure.test.check.generators :as gen]))
 
 (def gen-name
   "Generator for valid user names."
   (gen/fmap
-   (fn [[first last]]
-     (str first " " last))
+   (fn [[given-name family-name]]
+     (str given-name " " family-name))
    (gen/tuple
-    (gen/elements ["André" "Maria" "João" "Ana" "Pedro" "Clara" "Lucas" "Julia"])
-    (gen/elements ["Borba" "Silva" "Santos" "Oliveira" "Souza" "Lima" "Costa"]))))
+    (gen/elements ["André" "Maria" "João" "Ana" "Pedro" "Clara" "Lucas"])
+    (gen/elements ["Borba" "Silva" "Santos" "Oliveira" "Souza" "Lima"]))))
 
 (def gen-email
   "Generator for valid email addresses."
   (gen/fmap
-   (fn [[user domain]]
-     (str user "@" domain ".com"))
+   (fn [[full-name domain]]
+     (str (str/replace (str/lower-case full-name) " " ".") "@" domain ".com"))
    (gen/tuple
-    (gen/fmap #(clojure.string/lower-case %) gen-name)
+    gen-name
     (gen/elements ["gmail" "outlook" "borba" "company" "test"]))))
 
 (def gen-user-input
@@ -25,7 +27,3 @@
   (gen/hash-map
    :name  gen-name
    :email gen-email))
-
-(def gen-uuid
-  "Generator for UUID strings."
-  (gen/fmap str (gen/return (java.util.UUID/randomUUID))))

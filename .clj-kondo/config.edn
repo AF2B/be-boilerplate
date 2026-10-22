@@ -1,0 +1,30 @@
+;; The lint the service follows. `make lint` fails on any warning, and imports
+;; the configuration its dependencies ship (state-flow's defflow, for one).
+{:linters
+ {:missing-docstring            {:level :warning}
+  :refer-all                    {:level :error}
+  :use                          {:level :error}
+  :refer                        {:level :warning
+                                 :exclude [clojure.test]}
+  :unsorted-required-namespaces {:level :warning}
+  :shadowed-var                 {:level :warning}
+  :unused-namespace             {:level :warning}
+  :unused-private-var           {:level :warning}
+  :unused-binding               {:level :warning}
+  :used-underscored-binding     {:level :warning}
+  :redundant-fn-wrapper         {:level :warning}
+  :single-key-in                {:level :warning}}
+
+ ;; borba.flow/defflow takes a name, a map and the steps, as the defflow of
+ ;; state-flow does with its parameters, so the hook that state-flow ships
+ ;; (imported by `make lint`) reads its bindings. borba-state-flow-component
+ ;; 1.0.0 ships its own hook outside of its :paths, where no project finds it.
+ :hooks
+ {:analyze-call {borba.flow/defflow nubank.state-flow/defflow}}
+
+ ;; A test is documented by its name and its assertions.
+ :ns-groups    [{:pattern "-test$" :name tests}]
+ :config-in-ns {tests {:linters {:missing-docstring {:level :off}}}}
+
+ :output
+ {:exclude-files ["^target/" "^\\.cpcache/"]}}

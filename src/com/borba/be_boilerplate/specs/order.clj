@@ -3,16 +3,22 @@
 
    Contract
    --------
-   Input (create):  {:user-id <uuid> :items [{:product <string> :quantity <int> :price <decimal>}]}
-   Output:          {:id <uuid> :user-id <uuid> :items [...] :total <decimal> :status <keyword>}"
+   Input (create): {:user-id <uuid string>
+                    :items   [{:product  <string>
+                               :quantity <int>
+                               :price    <number>}]}
+   Output:         {:id <UUID> :user-id <UUID> :items [...]
+                    :total <BigDecimal> :status <keyword>}"
   (:require [clojure.spec.alpha :as s]
             [com.borba.be-boilerplate.util.predicates :as pred]))
 
 ;; ── Primitive Specs ─────────────────────────────────────────────────────────
 
-(s/def ::id pred/valid-uuid?)
+(s/def ::id uuid?)
 
 (s/def ::user-id pred/valid-uuid?)
+
+(s/def :com.borba.be-boilerplate.specs.order.stored/user-id uuid?)
 
 (s/def ::product (s/and string? pred/non-blank?))
 
@@ -38,4 +44,8 @@
   (s/keys :req-un [::user-id ::items]))
 
 (s/def ::order
-  (s/keys :req-un [::id ::user-id ::items ::total ::status]))
+  (s/keys :req-un [::id
+                   :com.borba.be-boilerplate.specs.order.stored/user-id
+                   ::items
+                   ::total
+                   ::status]))

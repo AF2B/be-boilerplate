@@ -1,13 +1,13 @@
 # HOW TO USE — be-boilerplate
 
 This document explains how everything fits together and how to do the most common tasks.
-You do not need to read the source code. Read this, follow the steps, and you are productive.
+Read this, follow the steps, and you are productive.
 
 ---
 
 ## Table of Contents
 
-1. [How it all works (the big picture)](#1-how-it-all-works)
+1. [How it all works](#1-how-it-all-works)
 2. [Starting the REPL and the server locally](#2-starting-the-repl-and-the-server-locally)
 3. [Adding a new HTTP handler](#3-adding-a-new-http-handler)
 4. [Adding a new interceptor](#4-adding-a-new-interceptor)
@@ -16,8 +16,9 @@ You do not need to read the source code. Read this, follow the steps, and you ar
 7. [Adding a new database query](#7-adding-a-new-database-query)
 8. [Adding a new external component](#8-adding-a-new-external-component)
 9. [Railway (error handling)](#9-railway-error-handling)
-10. [Running tests](#10-running-tests)
-11. [Environment variables](#11-environment-variables)
+10. [Health, readiness and shutdown](#10-health-readiness-and-shutdown)
+11. [Running tests](#11-running-tests)
+12. [Environment variables](#12-environment-variables)
 
 ---
 
@@ -26,36 +27,37 @@ You do not need to read the source code. Read this, follow the steps, and you ar
 The architecture has three rules:
 
 **Rule 1 — Config drives everything.**
-There is no code that hardcodes "start this component" or "register this route".
-All of that lives in `src/.../system/stag.edn` (staging) and `prod.edn` (production).
-You add a route there. You add a topic there. The system reads the file and wires everything.
+No code hardcodes "start this component" or "register this route". The system is described in
+`src/com/borba/be_boilerplate/system/base.edn`, and each profile (`stag.edn`, `prod.edn`, `test.edn`)
+deep-merges its differences on top. You add a route there. You add a topic there.
 
 **Rule 2 — Register, don't import.**
-Handlers and interceptors are registered via `defmethod`, not imported by a central file.
-The framework discovers them automatically. You write the function, register it, declare the route — done.
+Handlers and interceptors are registered with `defmethod`, not imported by a central file. You write
+the function, register it, declare the route — done.
 
 **Rule 3 — Components are shared via injection.**
-Every handler and interceptor receives a `components` map that contains the database connection,
-Redis client, Kafka producer, and event store. You never instantiate these yourself.
+Every handler and interceptor receives the `:service/components` map: the database, the event
+store, Redis, the Kafka producer and the lifecycle. You never instantiate these yourself.
 
 ### Startup sequence
 
 ```
-borba.core.main/-main
+borba.core.main/-main <profile>         (or the PROFILE variable; there is no default)
   │
-  ├── reads stag.edn (or prod.edn based on PROFILE env var)
-  ├── requires all namespaces listed in :service/namespaces
-  │     (this triggers all defmethod registrations)
-  └── calls ig/init on the system map
+  ├── reads config.edn for the profile   (system/<profile>.edn = base.edn + overrides)
+  ├── requires every namespace in :service/namespaces
+  │     (this loads every defmethod registration)
+  └── ig/init on :ig/system
         │
-        ├── starts database, redis, kafka-producer, kafka-consumer, event-store
-        ├── builds the interceptors map   (:service/interceptors)
-        ├── builds the handlers map       (:service/handlers)
-        ├── builds the routes table       (:http/routes)
-        └── starts the HTTP server        (:server/http)
+        ├── starts the database, the event store, Redis, the Kafka producer
+        ├── builds :service/components, :service/interceptors, :service/handlers
+        ├── builds the routes (:http/routes) and starts the server (:server/http)
+        ├── :borba/core marks the lifecycle :ready
+        └── starts the Kafka consumer
 ```
 
-When the process receives SIGTERM/SIGINT, `ig/halt!` is called and everything shuts down cleanly.
+A component that cannot start (a database that does not answer, brokers that are away) fails the
+start, halts what had started, and the process exits with status 1. Without a profile it exits with 2.
 
 ---
 
@@ -63,33 +65,44 @@ When the process receives SIGTERM/SIGINT, `ig/halt!` is called and everything sh
 
 ### Prerequisites
 
-- Clojure CLI (`clj`) installed
-- PostgreSQL, Redis, and Kafka running locally (or via Docker Compose)
+- JDK 21 and the Clojure CLI
+- Docker, for PostgreSQL, Redis and Kafka
 
-### Start the REPL (for development)
+### Configure and start the infrastructure
 
-In VSCode with Calva:
-1. `Ctrl+Alt+C Ctrl+Alt+J` — Jack-In
-2. Select `:dev` alias
-3. The REPL opens. Your settings/configs are not touched.
-
-In the terminal:
 ```bash
-clj -M:dev
+cp .env.example .env      # local values, never committed
+make docker-up            # PostgreSQL, Redis, Kafka (KRaft, no ZooKeeper)
 ```
 
-The `:dev` alias does NOT start the server. To start it manually from the REPL:
+`make` and `docker compose` both read `.env`. If a port is taken on your machine, change it there
+(`POSTGRES_PORT` and the port in `DATABASE_URL`, `REDIS_PORT`, `KAFKA_PORT` and `KAFKA_BROKERS`).
+
+### Start the server
+
+```bash
+make run                  # profile stag
+make run PROFILE=prod     # any other profile
+```
+
+`stag` is the default only for `make`. The image and the orchestrator always set `PROFILE`
+themselves, so a container without it exits instead of starting with the wrong configuration.
+
+### Start the REPL
+
+With the variables of `.env` in the environment (`set -a; . ./.env; set +a`):
+
+```bash
+clojure -M:dev
+```
+
+In VS Code with Calva, Jack-In with the `:dev` alias. Then:
+
 ```clojure
-(require '[borba.core.main])
-(borba.core.main/-main "stag")
-```
-
-### Start the server directly
-
-```bash
-clj -M:run
-# or with a specific profile:
-PROFILE=prod clj -M:run
+(go)          ;; starts the service with :stag, from dev/user.clj
+(go :prod)    ;; or with another profile
+(halt)        ;; stops it
+(running)     ;; the running system
 ```
 
 ---
@@ -100,21 +113,22 @@ This is the most common task. There are three steps.
 
 ### Step 1 — Write the business logic
 
-Create or open the file in `handlers/business/`. For example, `handlers/business/payment.clj`:
+Create `handlers/business/payment.clj`. Every step returns a `Right` or a `Left` (section 9):
 
 ```clojure
 (ns com.borba.be-boilerplate.handlers.business.payment
-  (:require [com.borba.be-boilerplate.repository.payment :as repo]))
+  (:require
+   [borba.railway :as rop]
+   [com.borba.be-boilerplate.repository.payment :as repo]))
 
-(defn create! [components body]
-  ;; components has :sql-client, :redis, :kafka-producer, :event-store
-  ;; Return Right on success, Left on failure — see section 9.
-  (repo/insert! (:sql-client components) body))
-
-(defn get-by-id [components id]
-  (if-let [payment (repo/find-by-id (:sql-client components) id)]
-    (borba.railway/right payment)
-    (borba.railway/left {:error :not-found :message (str "Payment " id " not found")})))
+(defn get-by-id
+  "Returns Right{payment} or Left{:error :not-found}.
+   - components: the service components
+   - id: the id of the payment, as text"
+  [components id]
+  (if-let [payment (some->> (parse-uuid id) (repo/find-by-id components))]
+    (rop/right payment)
+    (rop/failure :not-found {:id id})))
 ```
 
 ### Step 2 — Register the HTTP handler
@@ -122,89 +136,72 @@ Create or open the file in `handlers/business/`. For example, `handlers/business
 Open `handlers/http/handlers.clj` and add:
 
 ```clojure
-(:require [...
-           [com.borba.be-boilerplate.handlers.business.payment :as payment-biz]])
+(defn get-payment-by-id
+  "Returns the payment of the :id path parameter.
+   - request: the request, with :components and :path-params"
+  [request]
+  (let [{:keys [components path-params]} request]
+    (rh/railway->response (payment/get-by-id components (:id path-params)))))
 
-;; define the function
-(defn create-payment [{:keys [components body-params]}]
-  (rh/railway->response (payment-biz/create! components body-params) :status 201))
-
-;; register it under a keyword
-(defmethod handlers/handler :payment/create [_ _] create-payment)
-
-(defn get-payment-by-id [{:keys [components path-params]}]
-  (rh/railway->response (payment-biz/get-by-id components (:id path-params))))
-
-(defmethod handlers/handler :payment/get-by-id [_ _] get-payment-by-id)
+(defmethod registry/handler :payment/get-by-id [_ _] get-payment-by-id)
 ```
 
-The handler function always receives a flat map with:
-- `:components` — the shared components (db, redis, kafka, event-store)
-- `:body-params` — parsed JSON body (POST/PUT/PATCH)
+The handler function receives one map with:
+- `:components` — the shared components
+- `:body-params` — the JSON body, read strictly, with keyword keys (`{}` without a body)
 - `:path-params` — URL segments like `{:id "abc-123"}`
-- `:query-params` — query string params
-- `:header-params` — request headers
+- `:query-params` — the query string
+- `:header-params` — the headers, lower-case
+- `:request-id` — the id of the request, also in the logs and in `X-Request-Id`
+
+A body that is not JSON is a 400, one without `Content-Type: application/json` a 415, one over
+1 MiB a 413. Every error body is `{"error": ..., "message": ..., "request-id": ...}`.
 
 ### Step 3 — Declare the route
 
-Open `system/stag.edn` and add to `:http/routes :routes`:
+Add it to `:http/routes :routes` in `system/stag.edn`, `prod.edn` and `test.edn`:
 
 ```edn
-["/v1/payments"      :post :payment/create
- {:interceptors [:log-request :require-content-type]}]
-
-["/v1/payments/:id"  :get  :payment/get-by-id
+["/v1/payments/:id" :get :payment/get-by-id
  {:interceptors [:log-request]}]
 ```
 
-Do the same in `system/prod.edn`.
-
-That's it. No other file needs to change.
+A route that names a handler or an interceptor that is not registered fails the start, naming it.
+A handler used by two routes needs a `:name` on each.
 
 ---
 
 ## 4. Adding a new interceptor
 
-Interceptors run before (`:enter`) or after (`:leave`) the handler. Use them for cross-cutting concerns: auth, logging, rate limiting, content validation.
+Interceptors run before (`:enter`) or after (`:leave`) the handler: auth, rate limiting, headers.
+Every handler already has a request id, an access log, an error handler and the parsers; route
+interceptors run after those and before the handler.
 
 ### Step 1 — Write the interceptor
 
 Open `handlers/http/interceptors.clj` and add:
 
 ```clojure
-;; The :enter function receives the Pedestal context map and must return it.
-(defn auth-enter [ctx]
+(defn auth-enter
+  "Returns the context when the token is valid, and throws a 401 otherwise.
+   - ctx: the Pedestal context"
+  [ctx]
   (let [token (get-in ctx [:request :headers "authorization"])]
     (if (valid-token? token)
       ctx
       (throw (ex-info "Unauthorized" {:status 401 :error :unauthorized})))))
 
-;; Register it. The keyword is how you reference it in routes.
-(defmethod interceptors/interceptor :auth [_ _]
+(defmethod registry/interceptor :auth [_ _]
   {:enter auth-enter})
 ```
 
-For a `:leave` interceptor (runs after the handler, e.g. to add response headers):
+An `ex-info` with a `:status` becomes that response, with its `:error` code; any other exception is
+a 500 that says nothing to the client and is logged with the request id.
+
+If the interceptor needs a component, it is in the second argument:
 
 ```clojure
-(defmethod interceptors/interceptor :add-cors [_ _]
-  {:leave (fn [ctx]
-            (update-in ctx [:response :headers]
-                       assoc "Access-Control-Allow-Origin" "*"))})
-```
-
-For both `:enter` and `:leave`:
-
-```clojure
-(defmethod interceptors/interceptor :trace [_ _]
-  {:enter (fn [ctx] (println "→ entering") ctx)
-   :leave (fn [ctx] (println "← leaving") ctx)})
-```
-
-If the interceptor needs a component (e.g. Redis for rate limiting), use the second argument:
-
-```clojure
-(defmethod interceptors/interceptor :rate-limit [_ {:keys [redis]}]
+(defmethod registry/interceptor :rate-limit [_ {:keys [redis]}]
   {:enter (fn [ctx] (check-rate! redis ctx))})
 ```
 
@@ -217,110 +214,127 @@ If the interceptor needs a component (e.g. Redis for rate limiting), use the sec
 
 Interceptors run **left to right** for `:enter`, **right to left** for `:leave`.
 
-No other file needs to change. The component discovers all registered interceptors automatically.
-
 ---
 
 ## 5. Adding a new Kafka consumer
-
-Consuming a topic requires three steps: write the handler, add the topic to the config, and map the topic to the handler.
 
 ### Step 1 — Write the handler
 
 Open `events/consumer.clj`:
 
 ```clojure
-(defn handle-payment-event [{:keys [key value topic offset]}]
-  ;; value is the deserialized message (map)
-  ;; This is a plain function — no Integrant, no framework.
-  (println "Payment event received:" value))
+(defn handle-payment-event
+  "Handles a message of the payment-events topic.
+   - message: the message, a map of :key, :value, :topic and :offset"
+  [message]
+  (let [{:keys [key value]} message]
+    (payments/apply-event! key value)))
 ```
 
-The function receives a map with:
-- `:key` — message key (string)
-- `:value` — deserialized message body (map)
-- `:topic` — topic name (string)
-- `:offset` — partition offset (long)
+The message is a map of `:key` (text), `:value` (the JSON, with keyword keys), `:topic`,
+`:partition`, `:offset`, `:timestamp` and `:headers`.
 
-### Step 2 — Add the topic and map the handler in stag.edn
+Delivery is **at-least-once**: the offset is committed after the handler returns, so a message can
+be delivered twice. Make the handler safe to run twice (an upsert, a check of what was done). A
+handler that throws is tried again (`:max-attempts`, 3 by default) and then reported to `:on-error`
+or logged.
+
+### Step 2 — Add the topic and map the handler
+
+In `stag.edn` and `prod.edn`:
 
 ```edn
 :components/kafka-consumer
-{:topics ["order-events" "payment-events"]}   ;; add the new topic
+{:topics ["order-events" "payment-events"]}
 
 :kafka/consumer-handlers
 {"order-events"   com.borba.be-boilerplate.events.consumer/handle-order-event
  "payment-events" com.borba.be-boilerplate.events.consumer/handle-payment-event}
 ```
 
-Do the same in `prod.edn`.
-
-The component will load the namespace and resolve the function at startup using `requiring-resolve`.
-You do not need to add `events.consumer` to `:service/namespaces`.
+The component loads the namespace of the symbol, so `events.consumer` is not in
+`:service/namespaces`. A topic without a handler fails the start.
 
 ---
 
 ## 6. Using the Kafka producer
 
-The producer is available in every handler and interceptor via `components`.
+The producer is in the components, under `:kafka-producer`. Wrap each event in a domain-named
+function in `events/producer.clj`:
 
 ```clojure
-(defn create-payment [{:keys [components body-params]}]
-  (let [result (payment-biz/create! components body-params)]
-    ;; publish an event after creating
-    (borba.kafka-producer/publish!
-     (:kafka-producer components)
-     "payment-events"          ;; topic
-     (:id body-params)         ;; message key
-     {:event "payment.created"
-      :data  body-params})
-    (rh/railway->response result :status 201)))
+(defn payment-created!
+  "Publishes a payment-created event.
+   - kafka-producer: the kafka-producer component
+   - payment: the payment as it was stored"
+  [kafka-producer payment]
+  (kafka/send! kafka-producer
+               payment-events-topic
+               (:id payment)
+               {:event-type "payment-created"
+                :data       payment}))
 ```
 
-The producer handles serialization. Pass a plain Clojure map as the value.
+- The value is sent as JSON; the key keeps the events of an aggregate in order.
+- `kafka/send!` is asynchronous and returns a future; `kafka/send-sync!` waits and returns
+  `{:topic :partition :offset :timestamp}`. A failure that nobody waits for is logged.
+- Delivery is `acks=all` with idempotence: a retry is not a duplicate.
+
+See `handlers/business/order.clj`: the order and its event are stored in one transaction, and the
+event is published after it, without failing the request when Kafka is away.
 
 ---
 
 ## 7. Adding a new database query
 
-Queries live in `repository/`. Create a new file or add to an existing one.
+Queries live in `repository/` and take the components:
 
 ```clojure
 (ns com.borba.be-boilerplate.repository.payment
-  (:require [borba.sql-client :as sql]))
+  (:require
+   [borba.sql-client :as sql]))
 
-(defn insert! [sql-client payment]
-  (sql/execute-one! sql-client
-    ["INSERT INTO payments (id, amount, status) VALUES (?, ?, ?) RETURNING *"
-     (:id payment) (:amount payment) "pending"]))
+(defn insert!
+  "Inserts a payment and returns the stored row.
+   - components: the service components, with :sql-client
+   - payment: a map of :id, :amount and :status"
+  [components payment]
+  (sql/insert! (:sql-client components) :payments payment))
 
-(defn find-by-id [sql-client id]
-  (sql/execute-one! sql-client
-    ["SELECT * FROM payments WHERE id = ?" id]))
+(defn find-by-id
+  "Returns the payment with an id, or nil.
+   - components: the service components, with :sql-client
+   - id: the UUID of the payment"
+  [components id]
+  (sql/find-one-by! (:sql-client components) :payments {:id id}))
 ```
 
-`sql-client` comes from `components` in the handler:
+- Rows come back with kebab-case keys (`created_at` is `:created-at`); timestamps are `Instant`.
+- `insert!`, `update!`, `delete!`, `find-by!` and `find-one-by!` write the table and column names
+  themselves and refuse an empty condition. For anything else, `sql/execute!` with the SQL written out.
+- `sql/transact!` runs a function in a transaction; the connection it gives takes the place of the
+  data source (`(assoc components :sql-client tx)`).
+- A database failure is classified by `sql/error-data`: `:unique-violation`, `:foreign-key-violation`,
+  ... (see `handlers/business/user.clj`).
 
-```clojure
-(repo/find-by-id (:sql-client components) id)
-```
+Schema changes go in a new file of `db/migrations/` (`002_payments.sql`), applied in order by the
+local container on its first start and by the pipeline before the integration tests. On an existing
+local volume, apply it by hand or run `make docker-down && make docker-up`.
 
 ---
 
 ## 8. Adding a new external component
 
-If you need to add a new infrastructure dependency (e.g. S3, Elasticsearch, a feature flag service):
-
 ### Step 1 — Add it to deps.edn
 
 ```edn
-borba/borba-s3-component
-{:git/url "https://gitlab.com/andre.borbaaf2b/borba-s3-component.git"
+io.github.af2b/borba-s3-component
+{:git/url "https://github.com/AF2B/borba-s3-component"
  :git/tag "v1.0.0"
- :git/sha "abc12345"}
+ :git/sha "<the commit of the tag, printed in the release notes>"}
 ```
 
-### Step 2 — Add its namespace to :service/namespaces in base.edn
+### Step 2 — Add its namespace to `:service/namespaces` in base.edn
 
 ```edn
 :service/namespaces
@@ -331,113 +345,123 @@ borba/borba-s3-component
 ### Step 3 — Declare its Integrant key in base.edn
 
 ```edn
-:ig/system
-{...
- :components/s3
- {:bucket #or [#env S3_BUCKET "my-bucket"]
-  :region #or [#env AWS_REGION "us-east-1"]}}
+:components/s3
+{:bucket #env S3_BUCKET
+ :region #or [#env AWS_REGION "us-east-1"]}
 ```
 
-### Step 4 — Add it to :components/all in base.edn
+### Step 4 — Hand it to the handlers in `:service/components`
 
 ```edn
-:components/all
-{:sql-client     #ig/ref :components/database
- :redis          #ig/ref :components/redis
- :kafka-producer #ig/ref :components/kafka-producer
- :event-store    #ig/ref :components/event-store
- :s3             #ig/ref :components/s3}   ;; add this
+:service/components
+{:lifecycle      #ig/ref :borba/lifecycle
+ :sql-client     #ig/ref :components/database
+ ...
+ :s3             #ig/ref :components/s3}
 ```
 
-Now every handler and interceptor receives `:s3` in the `components` map automatically.
+Now every handler and interceptor receives `:s3` in its components. A key whose namespace is not
+loaded fails the start with `no component is registered for :components/s3`.
 
 ---
 
 ## 9. Railway (error handling)
 
-Every business function returns either a `Right` (success) or a `Left` (failure).
-You never throw exceptions from business logic. You return `Left` with an error map.
+Business functions return either a `Right` (success) or a `Left` (failure). An expected failure is
+data, a map with an `:error` code; exceptions are for bugs and for the edges (I/O).
 
 ```clojure
-(require '[borba.railway :as r])
+(require '[borba.railway :as rop])
 
-;; success
-(r/right {:id "123" :amount 100})
-
-;; failure
-(r/left {:error :not-found :message "Payment not found"})
+(rop/right {:id "123" :amount 100})
+(rop/failure :not-found {:id "123"})   ;; => Left{:error :not-found :id "123"}
 ```
 
 ### Chaining operations
 
-Use `r/>>= ` (bind) to chain operations that may fail.
-If any step returns `Left`, the chain short-circuits.
+`rop/|>` threads a value through steps and stops at the first `Left`. A step with its own arguments
+is a call that returns the step:
 
 ```clojure
-(r/>>= (find-user components id)
-       (fn [user] (validate-balance user amount))
-       (fn [user] (debit-account components user amount))
-       (fn [_]    (r/right {:status "debited"})))
+(rop/|> input
+        validate-create-input
+        (check-email-unique components)
+        enrich-user
+        (persist-user components))
 ```
 
-Or use the threading macro:
+A step must return a `Right` or a `Left`: anything else throws. `rop/try-right` turns a function that
+throws into a `Left` (the message of the exception is withheld; an `ex-info` with `:error` is kept).
+
+### Converting to an HTTP response
 
 ```clojure
-(r/|> (find-user components id)
-      #(validate-balance % amount)
-      #(debit-account components % amount))
+(rh/railway->response result)                    ;; 200 on Right
+(rh/railway->response result :status 201)        ;; 201 on Right
+(rh/railway->response result
+                      :error->status {:user/email-already-exists 409})
 ```
 
-### Converting to HTTP response
-
-`rh/railway->response` converts the result to a Pedestal response map automatically:
-
-```clojure
-(rh/railway->response result)            ;; 200 on Right, mapped status on Left
-(rh/railway->response result :status 201) ;; 201 on Right
-```
-
-Default error → HTTP status mappings:
-
-| `:error` keyword     | HTTP status |
-|----------------------|-------------|
-| `:not-found`         | 404         |
-| `:validation-failed` | 422         |
-| `:conflict`          | 409         |
-| `:unauthorized`      | 401         |
-| `:forbidden`         | 403         |
-| anything else        | 500         |
+| `:error`                 | HTTP status |
+|--------------------------|-------------|
+| `:not-found`             | 404         |
+| `:validation-failed`     | 422         |
+| `:conflict`              | 409         |
+| `:unauthorized`          | 401         |
+| `:forbidden`             | 403         |
+| `:unsupported-media-type`| 415         |
+| `:exception`             | 500         |
+| anything else            | 400         |
 
 ---
 
-## 10. Running tests
+## 10. Health, readiness and shutdown
+
+| Route     | What it says |
+|-----------|--------------|
+| `/health` | Liveness: the process answers. Used by the Docker `HEALTHCHECK`. |
+| `/readyz` | Readiness: `200` only when the lifecycle is `:ready` and the database answers; `503` while starting, draining or without the database. |
+
+On `SIGTERM` the service drains: `:borba/core` turns readiness off (`/readyz` becomes `503
+draining`), waits `:drain-delay-ms` while the server still serves, and only then stops the server,
+the consumer and the rest. `prod` waits 15 s: set it to at least the readiness `periodSeconds` times
+its `failureThreshold`, and keep the orchestrator's grace period longer than the drain plus the stop.
+
+---
+
+## 11. Running tests
 
 ```bash
-# run all tests
-clj -M:test
-
-# run a specific namespace
-clj -M:test --focus com.borba.be-boilerplate.handlers.business.user-test
+make test                 # unit tests, anywhere
+make test-integration     # integration flows, against PostgreSQL (make docker-up)
+make coverage             # unit tests with coverage, target/coverage/
+make lint                 # clj-kondo, fails on any warning
+make fmt-check            # cljfmt
 ```
 
-Integration tests use `nubank/state-flow`. They require the system to be running.
-Unit tests are plain `clojure.test` — no system needed.
+- **Unit tests** are plain `clojure.test` and `test.check` properties, with generators in
+  `test/generators/`.
+- **Integration flows** (`test/flows/`) use `borba-state-flow-component`: real handlers, interceptors
+  and routes, in process, with no port, against a real PostgreSQL. Their namespace carries
+  `^:integration`; `flows.support` starts the database and the event store of the `test` profile.
 
 ---
 
-## 11. Environment variables
+## 12. Environment variables
 
-| Variable             | Default                                              | Description              |
-|----------------------|------------------------------------------------------|--------------------------|
-| `PROFILE`            | `stag`                                               | Which EDN profile to load (`stag` or `prod`) |
-| `PORT`               | `8080`                                               | HTTP server port         |
-| `APP_VERSION`        | `dev`                                                | Shown in startup banner  |
-| `DATABASE_URL`       | `jdbc:postgresql://localhost:5432/be_boilerplate_dev`| PostgreSQL JDBC URL      |
-| `DB_USER`            | `borba`                                              | Database username        |
-| `DB_PASS`            | `borba_secret`                                       | Database password        |
-| `REDIS_HOST`         | `localhost`                                          | Redis host               |
-| `REDIS_PORT`         | `6379`                                               | Redis port               |
-| `KAFKA_BROKERS`      | `localhost:9092`                                     | Kafka bootstrap servers  |
-| `SCHEMA_REGISTRY_URL`| `http://localhost:8081`                              | Confluent Schema Registry|
+| Variable            | Used by                    | Local value (`.env.example`)                     |
+|---------------------|----------------------------|--------------------------------------------------|
+| `PROFILE`           | the service (or argument)  | set by `make run` (`stag`)                       |
+| `PORT`              | HTTP server                | `8080`                                           |
+| `APP_VERSION`       | startup log                | `dev` when unset                                 |
+| `DATABASE_URL`      | PostgreSQL JDBC URL        | `jdbc:postgresql://localhost:5432/be_boilerplate`|
+| `DATABASE_USER`     | PostgreSQL user            | `be_boilerplate`                                 |
+| `DATABASE_PASSWORD` | PostgreSQL password        | a local placeholder                              |
+| `REDIS_HOST`        | Redis host                 | `localhost`                                      |
+| `REDIS_PORT`        | Redis port                 | `6379`                                           |
+| `REDIS_PASSWORD`    | Redis password             | unset                                            |
+| `KAFKA_BROKERS`     | Kafka bootstrap servers    | `localhost:9092`                                 |
+| `POSTGRES_DB`, `POSTGRES_PORT`, `KAFKA_PORT` | `docker compose` only | `be_boilerplate`, `5432`, `9092`   |
 
-All variables have sensible local defaults. You only need to set them in production.
+The database credentials have no default in the configuration: outside a laptop they come from the
+orchestrator, and a service without them does not start.

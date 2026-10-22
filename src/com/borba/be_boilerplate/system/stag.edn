@@ -23,6 +23,7 @@
               {;; ── HTTP Routes (staging) ──────────────────────────────────
                :http/routes
                {:routes [["/health"        :get  :health/check]
+                         ["/readyz"        :get  :health/ready]
 
                          ;; POST routes use :require-content-type to guard against bad clients.
                          ;; :log-request is applied on all routes here as demonstration.
