@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-22
+
 ### Changed
 
 - The event store is the outbox: creating an order stores the order and its
@@ -67,3 +69,7 @@ adheres to [Semantic Versioning](https://semver.org/).
 ## [1.0.0]
 
 - First release.
+
+[Unreleased]: https://github.com/AF2B/be-boilerplate/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/AF2B/be-boilerplate/compare/v1.0.0...v2.0.0
+[1.0.0]: https://github.com/AF2B/be-boilerplate/releases/tag/v1.0.0
