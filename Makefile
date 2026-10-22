@@ -93,7 +93,7 @@ docker-run: ## Run the image with PROFILE and the variables of .env
 		-e PROFILE=$(PROFILE) \
 		$(IMAGE):latest
 
-docker-up: ## Start PostgreSQL, Redis and Kafka
+docker-up: ## Start PostgreSQL, Redis, Kafka and the Schema Registry
 	@docker compose up -d --wait
 
 docker-down: ## Stop the infrastructure and remove its volumes

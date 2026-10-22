@@ -31,8 +31,8 @@ services:
       timeout: 5s
       retries: 10
 
-  # Single-node Kafka in KRaft mode: no ZooKeeper. The service sends JSON as
-  # text, so there is no schema registry.
+  # Single-node Kafka in KRaft mode: no ZooKeeper. It listens for the service
+  # on localhost and for the schema registry on the network of the compose.
   kafka:
     image: apache/kafka:4.0.0
     container_name: be-boilerplate-kafka
@@ -41,20 +41,42 @@ services:
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:${KAFKA_PORT:-9092}
+      KAFKA_LISTENERS: PLAINTEXT://:9092,INTERNAL://:19092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:${KAFKA_PORT:-9092},INTERNAL://kafka:19092
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     healthcheck:
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null"]
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:19092 > /dev/null"]
       interval: 10s
       timeout: 10s
       retries: 10
+
+  # The Schema Registry: the JSON Schema of each topic, which the producer
+  # checks every value against and the consumer reads every value with. It
+  # keeps the schemas in the _schemas topic of the Kafka above.
+  schema-registry:
+    image: confluentinc/cp-schema-registry:8.0.0
+    container_name: be-boilerplate-schema-registry
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${SCHEMA_REGISTRY_PORT:-8081}:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:19092
+    healthcheck:
+      test: ["CMD-SHELL", "curl --silent --fail http://localhost:8081/subjects > /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
 volumes:
   pgdata:

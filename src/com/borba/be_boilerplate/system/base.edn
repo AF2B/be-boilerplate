@@ -100,17 +100,28 @@
    :password #env REDIS_PASSWORD}
 
   ;; ── Kafka Producer ──────────────────────────────────────────────────────
+  ;; Every topic it writes has a JSON Schema held by the Schema Registry, and
+  ;; every value is checked against it before it is sent. A topic without a
+  ;; schema cannot be written to. With :register? false (prod) the start fails
+  ;; when a schema is not registered; stag registers them itself.
   :components/kafka-producer
   {:bootstrap-servers #or [#env KAFKA_BROKERS "localhost:9092"]
-   :client-id         "be-boilerplate-producer"}
+   :client-id         "be-boilerplate-producer"
+   :schema-registry
+   {:url       #env SCHEMA_REGISTRY_URL
+    :schemas   {"order-events"
+                #include "com/borba/be_boilerplate/events/schemas/order_events.edn"}
+    :register? false}}
 
   ;; ── Kafka Consumer ──────────────────────────────────────────────────────
-  ;; With no :topics the consumer does nothing; profiles add them.
+  ;; With no :topics the consumer does nothing; profiles add them. Values are
+  ;; read with the schema they name, from the same registry.
   :components/kafka-consumer
   {:bootstrap-servers #or [#env KAFKA_BROKERS "localhost:9092"]
    :group-id          "be-boilerplate"
    :topics            []
-   :handlers          #ig/ref :kafka/consumer-handlers}
+   :handlers          #ig/ref :kafka/consumer-handlers
+   :schema-registry   {:url #env SCHEMA_REGISTRY_URL}}
 
   ;; ── Kafka Consumer Handlers ────────────────────────────────────────────
   ;; topic -> fully-qualified symbol of the handler, declared in the profiles:

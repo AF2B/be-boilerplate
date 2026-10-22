@@ -16,6 +16,7 @@
 | Event Sourcing | `borba-event-store-component` (append-only PostgreSQL table)         |
 | Cache          | Redis via `borba-redis-component` (Carmine)                          |
 | Messaging      | Kafka 4 via `borba-kafka-producer-component` / `-consumer-component` |
+| Contracts      | Confluent Schema Registry: a JSON Schema per topic, checked on send and read |
 | Errors         | `borba-railway-component`: Either + HTTP mapping                     |
 | Testing        | `clojure.test`, `test.check`, `borba-state-flow-component`, Kaocha   |
 
@@ -23,7 +24,7 @@
 
 ```bash
 cp .env.example .env     # local values, never committed
-make docker-up           # PostgreSQL, Redis, Kafka
+make docker-up           # PostgreSQL, Redis, Kafka, Schema Registry
 make run                 # profile stag
 ```
 
@@ -60,7 +61,7 @@ a service of its own from then on: later changes to the boilerplate do not reach
 ├── deps.edn                     # Borba components as git deps, aliases
 ├── build.clj                    # uberjar (tools.build)
 ├── Makefile                     # every command, locally and in CI
-├── docker-compose.yml           # local PostgreSQL, Redis, Kafka (KRaft)
+├── docker-compose.yml           # local PostgreSQL, Redis, Kafka (KRaft), Schema Registry
 ├── Dockerfile                   # multi-stage image, no default PROFILE
 ├── .env.example                 # local variables; copy to .env
 ├── db/migrations/               # SQL applied in order (users, orders)
@@ -86,6 +87,7 @@ a service of its own from then on: later changes to the boilerplate do not reach
 │       ├── repository/           # SQL via borba.sql-client
 │       ├── specs/                # clojure.spec contracts
 │       ├── events/
+│       │   ├── schemas/          # the JSON Schema of each topic (EDN)
 │       │   ├── producer.clj      # domain events to Kafka
 │       │   └── consumer.clj      # Kafka handlers
 │       └── util/predicates.clj
@@ -127,6 +129,13 @@ An order and its `order-created` event are stored in one transaction, then publi
 validate → total → enrich → persist order + append event (one transaction) → publish to Kafka
 ```
 
+### Event contracts
+
+Each topic has a JSON Schema in `events/schemas/`, held by the Schema Registry. The producer validates
+every value against it before sending, and the consumer reads every value with it. Locally (`stag`)
+the service registers its schemas at start; in `prod` it only checks they are registered, and fails
+the start otherwise, so a contract changes on purpose and never as a side effect of a deploy.
+
 ### Readiness and graceful shutdown
 
 `/readyz` is `200` only when the lifecycle is ready and the database answers. On `SIGTERM` the service
@@ -145,7 +154,7 @@ routing, then stops the server and the components.
 | `make lint` / `make fmt-check` | clj-kondo (no warnings) / cljfmt               |
 | `make build`                | Uberjar at `target/app.jar`                       |
 | `make docker-build`         | Image tagged with sha, version and `latest`       |
-| `make docker-up` / `docker-down` | Start / stop the local infrastructure        |
+| `make docker-up` / `docker-down` | Start / stop the local infrastructure (with the Schema Registry) |
 | `make init NAME=x`          | Scaffold a new service in `../x`                  |
 | `make outdated`             | Dependencies with a newer version                 |
 

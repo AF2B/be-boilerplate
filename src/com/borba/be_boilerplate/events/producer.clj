@@ -8,7 +8,10 @@
        (producer/order-created! kafka-producer order))
 
    A message is an envelope of :event-type and :data, sent as JSON with the id
-   of the aggregate as its key, so the events of an aggregate stay in order."
+   of the aggregate as its key, so the events of an aggregate stay in order.
+   The envelope is the contract of the topic: events/schemas/order_events.edn,
+   which the Schema Registry holds and every value is checked against. A value
+   that the schema refuses is not sent, and send! throws :schema-violation."
   (:require
    [borba.kafka-producer :as kafka]))
 

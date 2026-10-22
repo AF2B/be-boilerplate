@@ -30,13 +30,13 @@
 
   io.github.af2b/borba-kafka-producer-component
   {:git/url "https://github.com/AF2B/borba-kafka-producer-component"
-   :git/tag "v2.0.0"
-   :git/sha "4f3e224da4cad3fd3f39c7c9f31856d57071f866"}
+   :git/tag "v2.1.0"
+   :git/sha "fea2c76fe1e67309aad8e81d5297d0d5f9c239ba"}
 
   io.github.af2b/borba-kafka-consumer-component
   {:git/url "https://github.com/AF2B/borba-kafka-consumer-component"
-   :git/tag "v2.0.0"
-   :git/sha "a584e35aaf9c13cebbd9493757bb322a1f820398"}
+   :git/tag "v2.1.0"
+   :git/sha "fecc3e151cb72654b517bce93b1f085949b9469b"}
 
   io.github.af2b/borba-interceptors-component
   {:git/url "https://github.com/AF2B/borba-interceptors-component"
@@ -62,6 +62,11 @@
   {:git/url "https://github.com/AF2B/borba-railway-component"
    :git/tag "v2.0.0"
    :git/sha "366f8e0a46b8f47ccae506af7aae570c21d9efc9"}}
+
+ ;; The Schema Registry serializers of Confluent, which the Kafka components
+ ;; depend on, are not on Maven Central.
+ :mvn/repos
+ {"confluent" {:url "https://packages.confluent.io/maven/"}}
 
  :aliases
  {;; The REPL: the service, dev/user.clj and the tests with their deps, so a

@@ -39,6 +39,12 @@
                          ["/v1/orders/:id" :get  :order/get-by-id
                           {:interceptors [:log-request]}]]}
 
+               ;; ── Schemas (staging) ──────────────────────────────────────
+               ;; Locally the producer registers its schemas when it starts;
+               ;; the registry still refuses one that is not compatible.
+               :components/kafka-producer
+               {:schema-registry {:register? true}}
+
                ;; ── Kafka consumer topics (staging) ────────────────────────
                :components/kafka-consumer
                {:topics ["order-events"]}

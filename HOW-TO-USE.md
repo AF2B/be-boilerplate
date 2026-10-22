@@ -72,11 +72,12 @@ start, halts what had started, and the process exits with status 1. Without a pr
 
 ```bash
 cp .env.example .env      # local values, never committed
-make docker-up            # PostgreSQL, Redis, Kafka (KRaft, no ZooKeeper)
+make docker-up            # PostgreSQL, Redis, Kafka (KRaft) and the Schema Registry
 ```
 
 `make` and `docker compose` both read `.env`. If a port is taken on your machine, change it there
-(`POSTGRES_PORT` and the port in `DATABASE_URL`, `REDIS_PORT`, `KAFKA_PORT` and `KAFKA_BROKERS`).
+(`POSTGRES_PORT` and the port in `DATABASE_URL`, `REDIS_PORT`, `KAFKA_PORT` and `KAFKA_BROKERS`,
+`SCHEMA_REGISTRY_PORT` and `SCHEMA_REGISTRY_URL`).
 
 ### Start the server
 
@@ -231,13 +232,16 @@ Open `events/consumer.clj`:
     (payments/apply-event! key value)))
 ```
 
-The message is a map of `:key` (text), `:value` (the JSON, with keyword keys), `:topic`,
+The message is a map of `:key` (text), `:value` (the JSON, with keyword keys, already validated
+against the schema it was written with), `:topic`,
 `:partition`, `:offset`, `:timestamp` and `:headers`.
 
 Delivery is **at-least-once**: the offset is committed after the handler returns, so a message can
 be delivered twice. Make the handler safe to run twice (an upsert, a check of what was done). A
 handler that throws is tried again (`:max-attempts`, 3 by default) and then reported to `:on-error`
-or logged.
+or logged. A value that its schema refuses (`:schema-violation`) or that is not in the wire format
+(`:invalid-value`) is reported the same way; while the registry does not answer, the message is
+read again and never skipped.
 
 ### Step 2 — Add the topic and map the handler
 
@@ -259,8 +263,55 @@ The component loads the namespace of the symbol, so `events.consumer` is not in
 
 ## 6. Using the Kafka producer
 
-The producer is in the components, under `:kafka-producer`. Wrap each event in a domain-named
-function in `events/producer.clj`:
+Every topic the service writes has a **JSON Schema** held by the Schema Registry: the contract of
+the topic. The producer checks every value against it before sending (a value it refuses is not
+sent, and `send!` throws `:schema-violation`), writes it in the wire format of Confluent, and the
+consumer reads it with the same schema. A topic without a schema cannot be written to.
+
+### Step 1 — Write the schema
+
+Create `events/schemas/payment_events.edn`, a JSON Schema as EDN (see `order_events.edn`):
+
+```edn
+{:type                 "object"
+ :required             ["event-type" "data"]
+ :additionalProperties false
+ :properties           {:event-type {:type "string" :enum ["payment-created"]}
+                        :data       {:type "object"}}}
+```
+
+### Step 2 — Declare it in base.edn
+
+```edn
+:components/kafka-producer
+{...
+ :schema-registry
+ {:url     #env SCHEMA_REGISTRY_URL
+  :schemas {"order-events"
+            #include "com/borba/be_boilerplate/events/schemas/order_events.edn"
+            "payment-events"
+            #include "com/borba/be_boilerplate/events/schemas/payment_events.edn"}}}
+```
+
+### Step 3 — Register it
+
+- **Locally (`stag`)** the producer registers its schemas when it starts (`:register? true`). The
+  registry refuses a schema that is not compatible with the versions before it (`BACKWARD` by
+  default), and the start fails with `incompatible-schema`.
+- **Elsewhere (`prod`)** the start only checks that each schema is registered, and fails with
+  `schema-not-registered` otherwise: the contract changes when someone registers it, before the
+  deploy, never as a side effect of one. Register with the REST API of the registry:
+
+```bash
+jq -n --arg schema "$(clojure -M -e '(require (quote [clojure.edn :as edn]) (quote [jsonista.core :as j])) (print (j/write-value-as-string (edn/read-string (slurp "src/com/borba/be_boilerplate/events/schemas/payment_events.edn"))))')" \
+  '{schemaType: "JSON", schema: $schema}' |
+  curl -X POST -H "Content-Type: application/vnd.schemaregistry.v1+json" \
+       --data @- "$SCHEMA_REGISTRY_URL/subjects/payment-events-value/versions"
+```
+
+### Step 4 — Publish
+
+Wrap each event in a domain-named function in `events/producer.clj`:
 
 ```clojure
 (defn payment-created!
@@ -461,7 +512,8 @@ make fmt-check            # cljfmt
 | `REDIS_PORT`        | Redis port                 | `6379`                                           |
 | `REDIS_PASSWORD`    | Redis password             | unset                                            |
 | `KAFKA_BROKERS`     | Kafka bootstrap servers    | `localhost:9092`                                 |
-| `POSTGRES_DB`, `POSTGRES_PORT`, `KAFKA_PORT` | `docker compose` only | `be_boilerplate`, `5432`, `9092`   |
+| `SCHEMA_REGISTRY_URL` | Schema Registry          | `http://localhost:8081`                          |
+| `POSTGRES_DB`, `POSTGRES_PORT`, `KAFKA_PORT`, `SCHEMA_REGISTRY_PORT` | `docker compose` only | `be_boilerplate`, `5432`, `9092`, `8081` |
 
 The database credentials have no default in the configuration: outside a laptop they come from the
 orchestrator, and a service without them does not start.
